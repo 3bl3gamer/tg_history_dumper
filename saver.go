@@ -40,6 +40,9 @@ func (s JSONFilesHistorySaver) GetLastMessageID(dialog *Dialog) (int32, error) {
 	if err != nil {
 		return 0, merry.Wrap(err)
 	}
+	if endPos < 2 {
+		return 0, nil
+	}
 	curPos := endPos - 2
 	buf := []byte{0}
 	for ; curPos > 0; curPos-- {

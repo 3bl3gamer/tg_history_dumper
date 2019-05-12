@@ -29,9 +29,9 @@ func loadAndSaveMessages(tg *tgclient.TGClient, dialog *Dialog, saver HistorySav
 	limit := int32(100)
 
 	for {
-		log.Info("loading messages from #%d (+%d) until #%d\n", lastID, limit, dialog.LastMessageID)
+		log.Info("loading messages from #%d (+%d) until #%d", lastID, limit, dialog.LastMessageID)
 
-		allMessages, err := tgLoadChannelMessages(tg, dialog.Obj.(mtproto.TL_channel), limit, lastID)
+		allMessages, err := tgLoadMessages(tg, dialog.Obj, limit, lastID)
 		if err != nil {
 			return merry.Wrap(err)
 		}
@@ -42,10 +42,12 @@ func loadAndSaveMessages(tg *tgclient.TGClient, dialog *Dialog, saver HistorySav
 			if err != nil {
 				return merry.Wrap(err)
 			}
+			newMessages = append(newMessages, msg)
 			if msgID > lastID {
-				newMessages = append(newMessages, msg)
+				lastID = msgID
 			}
 		}
+		log.Info("got %d new message(s)", len(newMessages))
 
 		// for i, msg := range newMessages {
 		// 	println(" ---=====--- ")
@@ -61,7 +63,6 @@ func loadAndSaveMessages(tg *tgclient.TGClient, dialog *Dialog, saver HistorySav
 			return merry.Wrap(err)
 		}
 
-		lastID += limit
 		if lastID >= dialog.LastMessageID {
 			break
 		}
@@ -94,7 +95,7 @@ func dump() error {
 	}
 	for _, d := range dialogs {
 		if d.Username == "contests" {
-			log.Info("saving messages from: \033[32m%s (%s)\033[0m #%d %T\n", d.Title, d.Username, d.ID, d.Obj)
+			log.Info("saving messages from: \033[32m%s (%s)\033[0m #%d %T", d.Title, d.Username, d.ID, d.Obj)
 			if err := loadAndSaveMessages(tg, d, saver); err != nil {
 				return merry.Wrap(err)
 			}

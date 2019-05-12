@@ -91,7 +91,7 @@ func tgExtractDialogsData(dialogs []mtproto.TL, chats []mtproto.TL, users []mtpr
 		case mtproto.TL_peerUser:
 			user := usersByID[peer.UserID]
 			ext.ID = user.ID
-			ext.Title = user.FirstName + " " + user.LastName
+			ext.Title = strings.TrimSpace(user.FirstName + " " + user.LastName)
 			ext.Username = user.Username
 			ext.Obj = user
 		case mtproto.TL_peerChat:
@@ -156,20 +156,32 @@ func tgLoadDialogs(tg *tgclient.TGClient) ([]*Dialog, error) {
 	}
 }
 
-func tgLoadChannelMessages(tg *tgclient.TGClient, channel mtproto.TL_channel, limit, offsetID int32) ([]mtproto.TL, error) {
+func tgLoadMessages(tg *tgclient.TGClient, peerTL mtproto.TL, limit, lastMsgID int32) ([]mtproto.TL, error) {
+	var inputPeer mtproto.TL
+	switch peer := peerTL.(type) {
+	case mtproto.TL_user:
+		inputPeer = mtproto.TL_inputPeerUser{UserID: peer.ID, AccessHash: peer.AccessHash}
+	case mtproto.TL_channel:
+		inputPeer = mtproto.TL_inputPeerChannel{ChannelID: peer.ID, AccessHash: peer.AccessHash}
+	default:
+		return nil, merry.Wrap(mtproto.WrongRespError(peerTL))
+	}
+
 	res := tg.SendSync(mtproto.TL_messages_getHistory{
-		Peer: mtproto.TL_inputPeerChannel{
-			ChannelID:  int32(channel.ID),
-			AccessHash: channel.AccessHash,
-		},
-		Limit:    limit,
-		OffsetID: offsetID + limit,
+		Peer:      inputPeer,
+		Limit:     limit,
+		OffsetID:  lastMsgID + 1,
+		AddOffset: -limit,
 	})
-	messages, ok := res.(mtproto.TL_messages_channelMessages)
-	if !ok {
+
+	switch messages := res.(type) {
+	case mtproto.TL_messages_messagesSlice:
+		return messages.Messages, nil
+	case mtproto.TL_messages_channelMessages:
+		return messages.Messages, nil
+	default:
 		return nil, merry.Wrap(mtproto.WrongRespError(res))
 	}
-	return messages.Messages, nil
 }
 
 func tgObjToMap(obj mtproto.TL) map[string]interface{} {
