@@ -29,6 +29,10 @@ func loadAndSaveMessages(tg *tgclient.TGClient, dialog *Dialog, saver HistorySav
 	limit := int32(100)
 
 	for {
+		if lastID >= dialog.LastMessageID {
+			break
+		}
+
 		log.Info("loading messages from #%d (+%d) until #%d", lastID, limit, dialog.LastMessageID)
 
 		allMessages, err := tgLoadMessages(tg, dialog.Obj, limit, lastID)
@@ -62,10 +66,6 @@ func loadAndSaveMessages(tg *tgclient.TGClient, dialog *Dialog, saver HistorySav
 		if err := saver.SaveMessages(dialog, newMessages); err != nil {
 			return merry.Wrap(err)
 		}
-
-		if lastID >= dialog.LastMessageID {
-			break
-		}
 		time.Sleep(time.Second)
 	}
 	return nil
@@ -87,7 +87,12 @@ func dump() error {
 		return merry.Wrap(err)
 	}
 
-	saver := JSONFilesHistorySaver{"json"}
+	saver := &JSONFilesHistorySaver{Dirpath: "json"}
+	saver.SetFileRequestCallback(func(file *TGFileInfo, fpath string) error {
+		log.Info("downloading file to %s", fpath)
+		_, err := tg.DownloadFileToPath(fpath, file.InputLocation, file.DcID, int64(file.Size))
+		return merry.Wrap(err)
+	})
 
 	dialogs, err := tgLoadDialogs(tg)
 	if err != nil {

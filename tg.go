@@ -191,7 +191,7 @@ func tgObjToMap(obj mtproto.TL) map[string]interface{} {
 	}
 	typ := v.Type()
 	res := make(map[string]interface{})
-	for i := 0; i < v.NumField(); i++ {
+	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 		var val interface{}
 		switch value := v.Field(i).Interface().(type) {
@@ -213,6 +213,95 @@ func tgObjToMap(obj mtproto.TL) map[string]interface{} {
 	res["_"] = typ.Name()
 	return res
 }
+
+type TGFileInfo struct {
+	InputLocation mtproto.TL
+	DcID          int32
+	Size          int32
+	FName         string
+}
+
+func tgGetMessageMediaFileInfo(msgTL mtproto.TL) *TGFileInfo {
+	msg, ok := msgTL.(mtproto.TL_message)
+	if !ok {
+		return nil
+	}
+	switch media := msg.Media.(type) {
+	case mtproto.TL_messageMediaPhoto:
+		photo := media.Photo.(mtproto.TL_photo)
+		size := photo.Sizes[len(photo.Sizes)-1].(mtproto.TL_photoSize)
+		loc := size.Location.(mtproto.TL_fileLocation)
+		return &TGFileInfo{
+			InputLocation: mtproto.TL_inputFileLocation{
+				VolumeID:      loc.VolumeID,
+				LocalID:       loc.LocalID,
+				Secret:        loc.Secret,
+				FileReference: loc.FileReference,
+			},
+			Size:  size.Size,
+			DcID:  loc.DcID,
+			FName: "photo.jpg",
+		}
+	case mtproto.TL_messageMediaDocument:
+		doc := media.Document.(mtproto.TL_document)
+		fname := ""
+		for _, attrTL := range doc.Attributes {
+			if nameAttr, ok := attrTL.(mtproto.TL_documentAttributeFilename); ok {
+				fname = nameAttr.FileName
+				break
+			}
+		}
+		return &TGFileInfo{
+			InputLocation: mtproto.TL_inputDocumentFileLocation{
+				ID:            doc.ID,
+				AccessHash:    doc.AccessHash,
+				FileReference: doc.FileReference,
+			},
+			Size:  doc.Size,
+			DcID:  doc.DcID,
+			FName: fname,
+		}
+	default:
+		return nil
+	}
+}
+
+/*
+type FileRefsItem struct {
+	Path []string
+	Ref  mtproto.TL
+}
+
+func tgGetFileRefs(obj mtproto.TL) []FileRefsItem {
+	v := reflect.ValueOf(obj)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	typ := v.Type()
+	res := []FileRefsItem(nil)
+	for i := 0; i < typ.NumField(); i++ {
+		fieldName := typ.Field(i).Name
+		valueTL := v.Field(i).Interface()
+		switch value := valueTL.(type) {
+		case mtproto.TL:
+			for _, ref := range tgGetFileRefs(value) {
+				ref.Path = append([]string{fieldName}, ref.Path...)
+				res = append(res, ref)
+			}
+		case []mtproto.TL:
+			for i, item := range value {
+				for _, ref := range tgGetFileRefs(item) {
+					ref.Path = append([]string{fieldName, strconv.Itoa(i)}, ref.Path...)
+					res = append(res, ref)
+				}
+			}
+		case mtproto.TL_photo:
+			res = append(res, FileRefsItem{[]string{fieldName}})
+		}
+	}
+	return res
+}
+*/
 
 func tgGetMessageID(messageTL mtproto.TL) (int32, error) {
 	switch message := messageTL.(type) {

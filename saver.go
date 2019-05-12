@@ -11,19 +11,35 @@ import (
 	"github.com/ansel1/merry"
 )
 
+type SaveFileCallbackFunc func(*TGFileInfo, string) error
+
 type HistorySaver interface {
 	GetLastMessageID(*Dialog) (int32, error)
 	SaveMessages(*Dialog, []mtproto.TL) error
+	SetFileRequestCallback(SaveFileCallbackFunc)
 }
 
 type JSONFilesHistorySaver struct {
-	Dirpath string
+	Dirpath         string
+	requestFileFunc SaveFileCallbackFunc
+}
+
+func (s JSONFilesHistorySaver) dialogFSName(dialog *Dialog) string {
+	title := strings.Replace(dialog.Title, "/", "_", 0)
+	title = strings.Replace(title, ":", "_", 0) //TODO: is it enough?
+	return title + " #" + strconv.FormatInt(int64(dialog.ID), 10)
 }
 
 func (s JSONFilesHistorySaver) dialogFPath(dialog *Dialog) string {
-	title := strings.Replace(dialog.Title, "/", "_", 0)
-	title = strings.Replace(title, ":", "_", 0) //TODO: is it enough?
-	return s.Dirpath + "/" + title + " #" + strconv.FormatInt(int64(dialog.ID), 10)
+	return s.Dirpath + "/" + s.dialogFSName(dialog)
+}
+
+func (s JSONFilesHistorySaver) filePath(dialog *Dialog, msgID int32, fname string) string {
+	fpath := s.Dirpath + "/files/" + s.dialogFSName(dialog) + "/" + strconv.Itoa(int(msgID)) + "_Media"
+	if fname != "" {
+		fpath += "_" + fname
+	}
+	return fpath
 }
 
 func (s JSONFilesHistorySaver) GetLastMessageID(dialog *Dialog) (int32, error) {
@@ -89,8 +105,18 @@ func (s JSONFilesHistorySaver) SaveMessages(dialog *Dialog, messages []mtproto.T
 	encoder := json.NewEncoder(file)
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
-		if err := encoder.Encode(tgObjToMap(msg)); err != nil {
+		msgMap := tgObjToMap(msg)
+		if err := encoder.Encode(msgMap); err != nil {
 			return merry.Wrap(err)
+		}
+		if s.requestFileFunc != nil {
+			fileInfo := tgGetMessageMediaFileInfo(msg)
+			if fileInfo != nil {
+				fpath := s.filePath(dialog, msgMap["ID"].(int32), fileInfo.FName)
+				if err := s.requestFileFunc(fileInfo, fpath); err != nil {
+					return merry.Wrap(err)
+				}
+			}
 		}
 	}
 
@@ -98,4 +124,8 @@ func (s JSONFilesHistorySaver) SaveMessages(dialog *Dialog, messages []mtproto.T
 		return merry.Wrap(err)
 	}
 	return nil
+}
+
+func (s *JSONFilesHistorySaver) SetFileRequestCallback(callback SaveFileCallbackFunc) {
+	s.requestFileFunc = callback
 }
