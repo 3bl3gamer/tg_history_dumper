@@ -10,11 +10,20 @@ import (
 	"github.com/ansel1/merry"
 )
 
-type Dialog struct {
+type ChatType int8
+
+const (
+	ChatUser ChatType = iota
+	ChatGroup
+	ChatChannel
+)
+
+type Chat struct {
 	ID            int32
 	Title         string
 	Username      string
 	LastMessageID int32
+	Type          ChatType
 	Obj           mtproto.TL
 }
 
@@ -51,8 +60,8 @@ func (h LogHandler) Message(isIncoming bool, msg mtproto.TL, id int64) {
 var tgLogHandler = &LogHandler{}
 var log = mtproto.Logger{Hnd: tgLogHandler}
 
-func loadAndSaveMessages(tg *tgclient.TGClient, dialog *Dialog, saver HistorySaver) error {
-	lastID, err := saver.GetLastMessageID(dialog)
+func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver) error {
+	lastID, err := saver.GetLastMessageID(chat)
 	if err != nil {
 		return merry.Wrap(err)
 	}
@@ -60,15 +69,15 @@ func loadAndSaveMessages(tg *tgclient.TGClient, dialog *Dialog, saver HistorySav
 	limit := int32(100)
 
 	for {
-		if lastID >= dialog.LastMessageID {
+		if lastID >= chat.LastMessageID {
 			break
 		}
 
-		percent := (lastID - startID) * 100 / (dialog.LastMessageID - startID)
+		percent := (lastID - startID) * 100 / (chat.LastMessageID - startID)
 		log.Info("loading messages: \033[32m%d%%\033[0m from #%d (+%d) until #%d",
-			percent, lastID, limit, dialog.LastMessageID)
+			percent, lastID, limit, chat.LastMessageID)
 
-		allMessages, users, err := tgLoadMessages(tg, dialog.Obj, limit, lastID)
+		allMessages, users, err := tgLoadMessages(tg, chat.Obj, limit, lastID)
 		if err != nil {
 			return merry.Wrap(err)
 		}
@@ -103,7 +112,7 @@ func loadAndSaveMessages(tg *tgclient.TGClient, dialog *Dialog, saver HistorySav
 		// 	}
 		// 	println(string(buf))
 		// }
-		if err := saver.SaveMessages(dialog, newMessages); err != nil {
+		if err := saver.SaveMessages(chat, newMessages); err != nil {
 			return merry.Wrap(err)
 		}
 		time.Sleep(time.Second / 2)
@@ -140,11 +149,11 @@ func dump() error {
 	// 	return merry.Wrap(err)
 	// })
 
-	dialogs, err := tgLoadDialogs(tg)
+	chats, err := tgLoadChats(tg)
 	if err != nil {
 		return merry.Wrap(err)
 	}
-	for _, d := range dialogs {
+	for _, d := range chats {
 		if d.Title == *chatName {
 			log.Info("saving messages from: \033[32m%s (%s)\033[0m #%d %T", d.Title, d.Username, d.ID, d.Obj)
 			if err := loadAndSaveMessages(tg, d, saver); err != nil {

@@ -84,7 +84,7 @@ func tgGetMessageStamp(msgTL mtproto.TL) (int32, error) {
 	}
 }
 
-func tgExtractDialogsData(dialogs []mtproto.TL, chats []mtproto.TL, users []mtproto.TL) ([]*Dialog, error) {
+func tgExtractDialogsData(dialogs []mtproto.TL, chats []mtproto.TL, users []mtproto.TL) ([]*Chat, error) {
 	chatsByID := make(map[int32]mtproto.TL_chat)
 	channelsByID := make(map[int32]mtproto.TL_channel)
 	for _, chatTL := range chats {
@@ -106,59 +106,65 @@ func tgExtractDialogsData(dialogs []mtproto.TL, chats []mtproto.TL, users []mtpr
 		user := userTL.(mtproto.TL_user)
 		usersByID[user.ID] = user
 	}
-	extractedDialogs := make([]*Dialog, len(dialogs))
-	for i, dialogTL := range dialogs {
-		dialog := dialogTL.(mtproto.TL_dialog)
-		ext := &Dialog{LastMessageID: dialog.TopMessage}
+	extractedChats := make([]*Chat, len(dialogs))
+	for i, chatTL := range dialogs {
+		dialog := chatTL.(mtproto.TL_dialog)
+		ext := &Chat{LastMessageID: dialog.TopMessage}
 		switch peer := dialog.Peer.(type) {
 		case mtproto.TL_peerUser:
 			user := usersByID[peer.UserID]
 			ext.ID = user.ID
 			ext.Title = strings.TrimSpace(user.FirstName + " " + user.LastName)
 			ext.Username = user.Username
+			ext.Type = ChatUser
 			ext.Obj = user
 		case mtproto.TL_peerChat:
 			chat := chatsByID[peer.ChatID]
 			ext.ID = chat.ID
 			ext.Title = chat.Title
+			ext.Type = ChatGroup
 			ext.Obj = chat
 		case mtproto.TL_peerChannel:
 			channel := channelsByID[peer.ChannelID]
 			ext.ID = channel.ID
 			ext.Title = channel.Title
 			ext.Username = channel.Username
+			ext.Type = ChatChannel
+			if channel.Megagroup {
+				ext.Type = ChatGroup
+			}
 			ext.Obj = channel
 		default:
 			return nil, merry.Wrap(mtproto.WrongRespError(dialog.Peer))
 		}
-		extractedDialogs[i] = ext
+		extractedChats[i] = ext
 	}
-	return extractedDialogs, nil
+	return extractedChats, nil
 }
 
-func tgLoadDialogs(tg *tgclient.TGClient) ([]*Dialog, error) {
-	dialogs := make([]*Dialog, 0)
+func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
+	chats := make([]*Chat, 0)
 	offsetDate := int32(0)
 	for {
-		res := tg.SendSync(mtproto.TL_messages_getDialogs{
+		res := tgSend(tg, mtproto.TL_messages_getDialogs{
 			OffsetPeer: mtproto.TL_inputPeerEmpty{},
 			OffsetDate: offsetDate,
 			Limit:      100,
 		})
 		switch slice := res.(type) {
 		case mtproto.TL_messages_dialogs:
-			dialogs, err := tgExtractDialogsData(slice.Dialogs, slice.Chats, slice.Users)
+			chats, err := tgExtractDialogsData(slice.Dialogs, slice.Chats, slice.Users)
 			if err != nil {
 				return nil, merry.Wrap(err)
 			}
-			return dialogs, nil
+			return chats, nil
 		case mtproto.TL_messages_dialogsSlice:
 			group, err := tgExtractDialogsData(slice.Dialogs, slice.Chats, slice.Users)
 			if err != nil {
 				return nil, merry.Wrap(err)
 			}
 			for _, d := range group {
-				dialogs = append(dialogs, d) //TODO: check duplicates
+				chats = append(chats, d) //TODO: check duplicates
 			}
 
 			offsetDate, err = tgGetMessageStamp(slice.Messages[len(slice.Messages)-1])
@@ -166,11 +172,11 @@ func tgLoadDialogs(tg *tgclient.TGClient) ([]*Dialog, error) {
 				return nil, merry.Wrap(err)
 			}
 
-			if len(dialogs) == int(slice.Count) {
-				return dialogs, nil
+			if len(chats) == int(slice.Count) {
+				return chats, nil
 			}
 			if len(slice.Dialogs) < 100 {
-				log.Warn("some dialogs seem missing: got %d in the end, expected %d; retrying from start", len(dialogs), slice.Count)
+				log.Warn("some chats seem missing: got %d in the end, expected %d; retrying from start", len(chats), slice.Count)
 				offsetDate = 0
 			}
 		default:

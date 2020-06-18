@@ -31,9 +31,9 @@ func (u *UserData) Equals(other *mtproto.TL_user) bool {
 type SaveFileCallbackFunc func(*TGFileInfo, string) error
 
 type HistorySaver interface {
-	GetLastMessageID(*Dialog) (int32, error)
+	GetLastMessageID(*Chat) (int32, error)
 	SaveSenders([]mtproto.TL) error
-	SaveMessages(*Dialog, []mtproto.TL) error
+	SaveMessages(*Chat, []mtproto.TL) error
 	SetFileRequestCallback(SaveFileCallbackFunc)
 }
 
@@ -43,30 +43,30 @@ type JSONFilesHistorySaver struct {
 	requestFileFunc SaveFileCallbackFunc
 }
 
-func (s JSONFilesHistorySaver) dialogFSName(dialog *Dialog) string {
-	title := strings.Replace(dialog.Title, "/", "_", -1)
+func (s JSONFilesHistorySaver) chatFSName(chat *Chat) string {
+	title := strings.Replace(chat.Title, "/", "_", -1)
 	title = strings.Replace(title, ":", "_", -1) //TODO: is it enough?
-	return strconv.FormatInt(int64(dialog.ID), 10) + "__" + title
+	return strconv.FormatInt(int64(chat.ID), 10) + "__" + title
 }
 
-func (s JSONFilesHistorySaver) dialogFPath(dialog *Dialog) string {
-	return s.Dirpath + "/" + s.dialogFSName(dialog)
+func (s JSONFilesHistorySaver) chatFPath(chat *Chat) string {
+	return s.Dirpath + "/" + s.chatFSName(chat)
 }
 
 func (s JSONFilesHistorySaver) usersFPath() string {
 	return s.Dirpath + "/users"
 }
 
-func (s JSONFilesHistorySaver) filePath(dialog *Dialog, msgID int32, fname string) string {
-	fpath := s.Dirpath + "/files/" + s.dialogFSName(dialog) + "/" + strconv.Itoa(int(msgID)) + "_Media"
+func (s JSONFilesHistorySaver) filePath(chat *Chat, msgID int32, fname string) string {
+	fpath := s.Dirpath + "/files/" + s.chatFSName(chat) + "/" + strconv.Itoa(int(msgID)) + "_Media"
 	if fname != "" {
 		fpath += "_" + fname
 	}
 	return fpath
 }
 
-func (s JSONFilesHistorySaver) GetLastMessageID(dialog *Dialog) (int32, error) {
-	file, err := os.Open(s.dialogFPath(dialog))
+func (s JSONFilesHistorySaver) GetLastMessageID(chat *Chat) (int32, error) {
+	file, err := os.Open(s.chatFPath(chat))
 	if os.IsNotExist(err) {
 		return 0, nil
 	}
@@ -184,12 +184,12 @@ func (s JSONFilesHistorySaver) SaveSenders(users []mtproto.TL) error {
 	return nil
 }
 
-func (s JSONFilesHistorySaver) SaveMessages(dialog *Dialog, messages []mtproto.TL) error {
+func (s JSONFilesHistorySaver) SaveMessages(chat *Chat, messages []mtproto.TL) error {
 	if err := os.MkdirAll(s.Dirpath, 0700); err != nil {
 		return merry.Wrap(err)
 	}
 
-	file, err := os.OpenFile(s.dialogFPath(dialog), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	file, err := os.OpenFile(s.chatFPath(chat), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		return merry.Wrap(err)
 	}
@@ -202,7 +202,7 @@ func (s JSONFilesHistorySaver) SaveMessages(dialog *Dialog, messages []mtproto.T
 		if s.requestFileFunc != nil {
 			fileInfo := tgGetMessageMediaFileInfo(msg)
 			if fileInfo != nil {
-				fpath := s.filePath(dialog, msgMap["ID"].(int32), fileInfo.FName)
+				fpath := s.filePath(chat, msgMap["ID"].(int32), fileInfo.FName)
 				if err := s.requestFileFunc(fileInfo, fpath); err != nil {
 					return merry.Wrap(err)
 				}
