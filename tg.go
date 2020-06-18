@@ -5,6 +5,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/3bl3gamer/tgclient"
 	"github.com/3bl3gamer/tgclient/mtproto"
@@ -12,7 +13,7 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-func tgConnect(appID int, appHash string) (*tgclient.TGClient, error) {
+func tgConnect(appID int, appHash, sessionFPath string) (*tgclient.TGClient, error) {
 	cfg := &mtproto.AppConfig{
 		AppID:          int32(appID),
 		AppHash:        appHash,
@@ -24,7 +25,7 @@ func tgConnect(appID int, appHash string) (*tgclient.TGClient, error) {
 		LangCode:       "en",
 	}
 
-	sessStore := &mtproto.SessFileStore{FPath: "./tg.session"}
+	sessStore := &mtproto.SessFileStore{FPath: sessionFPath}
 
 	dialer, err := proxy.SOCKS5("tcp", "127.0.0.1:9050", nil, proxy.Direct)
 	if err != nil {
@@ -48,6 +49,28 @@ func tgConnect(appID int, appHash string) (*tgclient.TGClient, error) {
 	me := users[0].(mtproto.TL_user)
 	log.Info("logged in as \033[32;1m%s (%s)\033[0m #%d", strings.TrimSpace(me.FirstName+" "+me.LastName), me.Username, me.ID)
 	return tg, nil
+}
+
+func tgSend(tg *tgclient.TGClient, msg mtproto.TLReq) mtproto.TL {
+	for {
+		res := tg.SendSync(msg)
+		if mtproto.IsError(res, "RPC_CALL_FAIL") {
+			log.Warn("got RPC error, retrying")
+			time.Sleep(time.Second)
+			continue
+		}
+		floodPerfix := "FLOOD_WAIT_"
+		if err, ok := res.(mtproto.TL_rpc_error); ok && strings.HasPrefix(err.ErrorMessage, floodPerfix) {
+			secs, _ := strconv.ParseInt(err.ErrorMessage[len(floodPerfix):], 10, 64)
+			if secs == 0 {
+				secs = 5
+			}
+			log.Warn("got flood-wait, retrying in %d second(s)", secs)
+			time.Sleep(time.Duration(secs) * time.Second)
+			continue
+		}
+		return res
+	}
 }
 
 func tgGetMessageStamp(msgTL mtproto.TL) (int32, error) {
@@ -156,18 +179,22 @@ func tgLoadDialogs(tg *tgclient.TGClient) ([]*Dialog, error) {
 	}
 }
 
-func tgLoadMessages(tg *tgclient.TGClient, peerTL mtproto.TL, limit, lastMsgID int32) ([]mtproto.TL, error) {
+func tgLoadMessages(
+	tg *tgclient.TGClient, peerTL mtproto.TL, limit, lastMsgID int32,
+) ([]mtproto.TL, []mtproto.TL, error) {
 	var inputPeer mtproto.TL
 	switch peer := peerTL.(type) {
 	case mtproto.TL_user:
 		inputPeer = mtproto.TL_inputPeerUser{UserID: peer.ID, AccessHash: peer.AccessHash}
+	case mtproto.TL_chat:
+		inputPeer = mtproto.TL_inputPeerChat{ChatID: peer.ID}
 	case mtproto.TL_channel:
 		inputPeer = mtproto.TL_inputPeerChannel{ChannelID: peer.ID, AccessHash: peer.AccessHash}
 	default:
-		return nil, merry.Wrap(mtproto.WrongRespError(peerTL))
+		return nil, nil, merry.Wrap(mtproto.WrongRespError(peerTL))
 	}
 
-	res := tg.SendSync(mtproto.TL_messages_getHistory{
+	res := tgSend(tg, mtproto.TL_messages_getHistory{
 		Peer:      inputPeer,
 		Limit:     limit,
 		OffsetID:  lastMsgID + 1,
@@ -176,11 +203,11 @@ func tgLoadMessages(tg *tgclient.TGClient, peerTL mtproto.TL, limit, lastMsgID i
 
 	switch messages := res.(type) {
 	case mtproto.TL_messages_messagesSlice:
-		return messages.Messages, nil
+		return messages.Messages, messages.Users, nil
 	case mtproto.TL_messages_channelMessages:
-		return messages.Messages, nil
+		return messages.Messages, messages.Users, nil
 	default:
-		return nil, merry.Wrap(mtproto.WrongRespError(res))
+		return nil, nil, merry.Wrap(mtproto.WrongRespError(res))
 	}
 }
 
@@ -230,16 +257,15 @@ func tgGetMessageMediaFileInfo(msgTL mtproto.TL) *TGFileInfo {
 	case mtproto.TL_messageMediaPhoto:
 		photo := media.Photo.(mtproto.TL_photo)
 		size := photo.Sizes[len(photo.Sizes)-1].(mtproto.TL_photoSize)
-		loc := size.Location.(mtproto.TL_fileLocation)
 		return &TGFileInfo{
-			InputLocation: mtproto.TL_inputFileLocation{
-				VolumeID:      loc.VolumeID,
-				LocalID:       loc.LocalID,
-				Secret:        loc.Secret,
-				FileReference: loc.FileReference,
+			InputLocation: mtproto.TL_inputPhotoFileLocation{
+				ID:            photo.ID,
+				AccessHash:    photo.AccessHash,
+				FileReference: photo.FileReference,
+				ThumbSize:     size.Type,
 			},
 			Size:  size.Size,
-			DcID:  loc.DcID,
+			DcID:  photo.DcID,
 			FName: "photo.jpg",
 		}
 	case mtproto.TL_messageMediaDocument:

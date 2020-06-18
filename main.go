@@ -18,7 +18,37 @@ type Dialog struct {
 	Obj           mtproto.TL
 }
 
-var tgLogHandler = &mtproto.SimpleLogHandler{}
+type FileProgressLogger struct {
+	prevProgress int64
+}
+
+func (l *FileProgressLogger) OnProgress(fileLocation mtproto.TL, offset, size int64) {
+	prog := offset * 100 / size
+	if prog == 100 && l.prevProgress == 0 {
+		return //got file in one step, no need to log it
+	}
+	if prog == 100 || prog-l.prevProgress >= 5 {
+		log.Info("%d%%", prog)
+		l.prevProgress = prog
+	}
+}
+
+type LogHandler struct {
+	mtproto.SimpleLogHandler
+}
+
+func (h LogHandler) Log(level mtproto.LogLevel, err error, msg string, args ...interface{}) {
+	if level != mtproto.DEBUG {
+		h.SimpleLogHandler.Log(level, err, msg, args...)
+	}
+	//h.AddLevelPrevix(level, h.StringifyLog(level, err, msg, args...))
+}
+
+func (h LogHandler) Message(isIncoming bool, msg mtproto.TL, id int64) {
+	h.Log(mtproto.DEBUG, nil, h.StringifyMessage(isIncoming, msg, id))
+}
+
+var tgLogHandler = &LogHandler{}
 var log = mtproto.Logger{Hnd: tgLogHandler}
 
 func loadAndSaveMessages(tg *tgclient.TGClient, dialog *Dialog, saver HistorySaver) error {
@@ -26,6 +56,7 @@ func loadAndSaveMessages(tg *tgclient.TGClient, dialog *Dialog, saver HistorySav
 	if err != nil {
 		return merry.Wrap(err)
 	}
+	startID := lastID
 	limit := int32(100)
 
 	for {
@@ -33,9 +64,11 @@ func loadAndSaveMessages(tg *tgclient.TGClient, dialog *Dialog, saver HistorySav
 			break
 		}
 
-		log.Info("loading messages from #%d (+%d) until #%d", lastID, limit, dialog.LastMessageID)
+		percent := (lastID - startID) * 100 / (dialog.LastMessageID - startID)
+		log.Info("loading messages: \033[32m%d%%\033[0m from #%d (+%d) until #%d",
+			percent, lastID, limit, dialog.LastMessageID)
 
-		allMessages, err := tgLoadMessages(tg, dialog.Obj, limit, lastID)
+		allMessages, users, err := tgLoadMessages(tg, dialog.Obj, limit, lastID)
 		if err != nil {
 			return merry.Wrap(err)
 		}
@@ -49,9 +82,16 @@ func loadAndSaveMessages(tg *tgclient.TGClient, dialog *Dialog, saver HistorySav
 			newMessages = append(newMessages, msg)
 			if msgID > lastID {
 				lastID = msgID
+				if startID == 0 {
+					startID = lastID
+				}
 			}
 		}
-		log.Info("got %d new message(s)", len(newMessages))
+		log.Debug("got %d new message(s)", len(newMessages))
+
+		if err := saver.SaveSenders(users); err != nil {
+			return merry.Wrap(err)
+		}
 
 		// for i, msg := range newMessages {
 		// 	println(" ---=====--- ")
@@ -66,7 +106,7 @@ func loadAndSaveMessages(tg *tgclient.TGClient, dialog *Dialog, saver HistorySav
 		if err := saver.SaveMessages(dialog, newMessages); err != nil {
 			return merry.Wrap(err)
 		}
-		time.Sleep(time.Second)
+		time.Sleep(time.Second / 2)
 	}
 	return nil
 }
@@ -74,6 +114,9 @@ func loadAndSaveMessages(tg *tgclient.TGClient, dialog *Dialog, saver HistorySav
 func dump() error {
 	appID := flag.Int("app_id", 0, "app id")
 	appHash := flag.String("app_hash", "", "app hash")
+	sessionFName := flag.String("session", "tg.session", "session file path")
+	outDirPath := flag.String("out", "json", "output directory path")
+	chatName := flag.String("chat", "", "name of the chat to dump")
 	flag.Parse()
 
 	if *appID == 0 || *appHash == "" {
@@ -82,24 +125,27 @@ func dump() error {
 		os.Exit(2)
 	}
 
-	tg, err := tgConnect(*appID, *appHash)
+	tg, err := tgConnect(*appID, *appHash, *sessionFName)
 	if err != nil {
 		return merry.Wrap(err)
 	}
 
-	saver := &JSONFilesHistorySaver{Dirpath: "json"}
-	saver.SetFileRequestCallback(func(file *TGFileInfo, fpath string) error {
-		log.Info("downloading file to %s", fpath)
-		_, err := tg.DownloadFileToPath(fpath, file.InputLocation, file.DcID, int64(file.Size))
-		return merry.Wrap(err)
-	})
+	saver := &JSONFilesHistorySaver{Dirpath: *outDirPath}
+	// saver.SetFileRequestCallback(func(file *TGFileInfo, fpath string) error {
+	// 	_, err := os.Stat(fpath)
+	// 	if os.IsNotExist(err) {
+	// 		log.Info("downloading file to %s", fpath)
+	// 		_, err = tg.DownloadFileToPath(fpath, file.InputLocation, file.DcID, int64(file.Size), &FileProgressLogger{})
+	// 	}
+	// 	return merry.Wrap(err)
+	// })
 
 	dialogs, err := tgLoadDialogs(tg)
 	if err != nil {
 		return merry.Wrap(err)
 	}
 	for _, d := range dialogs {
-		if d.Username == "contests" {
+		if d.Title == *chatName {
 			log.Info("saving messages from: \033[32m%s (%s)\033[0m #%d %T", d.Title, d.Username, d.ID, d.Obj)
 			if err := loadAndSaveMessages(tg, d, saver); err != nil {
 				return merry.Wrap(err)
