@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -11,6 +12,54 @@ import (
 	"github.com/3bl3gamer/tgclient/mtproto"
 	"github.com/ansel1/merry"
 )
+
+type ChatType int8
+
+const (
+	ChatUser ChatType = iota
+	ChatGroup
+	ChatChannel
+)
+
+func (t ChatType) String() string {
+	switch t {
+	case ChatUser:
+		return "user"
+	case ChatGroup:
+		return "group"
+	case ChatChannel:
+		return "channel"
+	default:
+		return fmt.Sprintf("??%d??", t)
+	}
+}
+
+func (t *ChatType) UnmarshalJSON(buf []byte) error {
+	var s string
+	if err := json.Unmarshal(buf, &s); err != nil {
+		return merry.Wrap(err)
+	}
+	switch s {
+	case "user":
+		*t = ChatUser
+	case "group":
+		*t = ChatGroup
+	case "channel":
+		*t = ChatChannel
+	default:
+		return merry.New("wrong chat type: " + s)
+	}
+	return nil
+}
+
+type Chat struct {
+	ID            int32
+	Title         string
+	Username      string
+	LastMessageID int32
+	Type          ChatType
+	Obj           mtproto.TL
+}
 
 type UserData struct {
 	ID                    int32
@@ -28,7 +77,7 @@ func (u *UserData) Equals(other *mtproto.TL_user) bool {
 		u.LangCode == other.LangCode
 }
 
-type SaveFileCallbackFunc func(*TGFileInfo, string) error
+type SaveFileCallbackFunc func(*Chat, *TGFileInfo, string) error
 
 type HistorySaver interface {
 	GetLastMessageID(*Chat) (int32, error)
@@ -203,7 +252,7 @@ func (s JSONFilesHistorySaver) SaveMessages(chat *Chat, messages []mtproto.TL) e
 			fileInfo := tgGetMessageMediaFileInfo(msg)
 			if fileInfo != nil {
 				fpath := s.filePath(chat, msgMap["ID"].(int32), fileInfo.FName)
-				if err := s.requestFileFunc(fileInfo, fpath); err != nil {
+				if err := s.requestFileFunc(chat, fileInfo, fpath); err != nil {
 					return merry.Wrap(err)
 				}
 			}

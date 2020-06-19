@@ -13,9 +13,9 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-func tgConnect(appID int, appHash, sessionFPath string) (*tgclient.TGClient, error) {
+func tgConnect(appID int32, appHash, sessionFPath string) (*tgclient.TGClient, error) {
 	cfg := &mtproto.AppConfig{
-		AppID:          int32(appID),
+		AppID:          appID,
 		AppHash:        appHash,
 		AppVersion:     "0.0.1",
 		DeviceModel:    "Unknown",

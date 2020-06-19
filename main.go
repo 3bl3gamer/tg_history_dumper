@@ -10,21 +10,18 @@ import (
 	"github.com/ansel1/merry"
 )
 
-type ChatType int8
+type LogHandler struct {
+	mtproto.SimpleLogHandler
+}
 
-const (
-	ChatUser ChatType = iota
-	ChatGroup
-	ChatChannel
-)
+func (h LogHandler) Log(level mtproto.LogLevel, err error, msg string, args ...interface{}) {
+	if level != mtproto.DEBUG {
+		h.SimpleLogHandler.Log(level, err, msg, args...)
+	}
+}
 
-type Chat struct {
-	ID            int32
-	Title         string
-	Username      string
-	LastMessageID int32
-	Type          ChatType
-	Obj           mtproto.TL
+func (h LogHandler) Message(isIncoming bool, msg mtproto.TL, id int64) {
+	h.Log(mtproto.DEBUG, nil, h.StringifyMessage(isIncoming, msg, id))
 }
 
 type FileProgressLogger struct {
@@ -42,25 +39,10 @@ func (l *FileProgressLogger) OnProgress(fileLocation mtproto.TL, offset, size in
 	}
 }
 
-type LogHandler struct {
-	mtproto.SimpleLogHandler
-}
-
-func (h LogHandler) Log(level mtproto.LogLevel, err error, msg string, args ...interface{}) {
-	if level != mtproto.DEBUG {
-		h.SimpleLogHandler.Log(level, err, msg, args...)
-	}
-	//h.AddLevelPrevix(level, h.StringifyLog(level, err, msg, args...))
-}
-
-func (h LogHandler) Message(isIncoming bool, msg mtproto.TL, id int64) {
-	h.Log(mtproto.DEBUG, nil, h.StringifyMessage(isIncoming, msg, id))
-}
-
 var tgLogHandler = &LogHandler{}
 var log = mtproto.Logger{Hnd: tgLogHandler}
 
-func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver) error {
+func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, config *Config) error {
 	lastID, err := saver.GetLastMessageID(chat)
 	if err != nil {
 		return merry.Wrap(err)
@@ -68,6 +50,7 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver) 
 	startID := lastID
 	limit := int32(100)
 
+	prevIterTime := time.Now()
 	for {
 		if lastID >= chat.LastMessageID {
 			break
@@ -102,66 +85,100 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver) 
 			return merry.Wrap(err)
 		}
 
-		// for i, msg := range newMessages {
-		// 	println(" ---=====--- ")
-		// 	fmt.Printf("%d === %#v\n", i, msg)
-		// 	fmt.Println(tgObjToMap(msg))
-		// 	buf, err := json.Marshal(tgObjToMap(msg))
-		// 	if err != nil {
-		// 		return merry.Wrap(err)
-		// 	}
-		// 	println(string(buf))
-		// }
 		if err := saver.SaveMessages(chat, newMessages); err != nil {
 			return merry.Wrap(err)
 		}
-		time.Sleep(time.Second / 2)
+
+		now := time.Now()
+		delta := time.Duration(config.RequestIntervalMS)*time.Millisecond - now.Sub(prevIterTime)
+		time.Sleep(delta)
+		prevIterTime = now
 	}
 	return nil
 }
 
 func dump() error {
-	appID := flag.Int("app_id", 0, "app id")
-	appHash := flag.String("app_hash", "", "app hash")
-	sessionFName := flag.String("session", "tg.session", "session file path")
-	outDirPath := flag.String("out", "json", "output directory path")
-	chatName := flag.String("chat", "", "name of the chat to dump")
+	appID := flag.Int("app-id", 0, "app id")
+	appHash := flag.String("app-hash", "", "app hash")
+	sessionFPath := flag.String("session", "", "session file path")
+	outDirPath := flag.String("out", "", "output directory path")
+	configFPath := flag.String("config", "config.json", "path to config file")
+	chatTitle := flag.String("chat", "", "name of the chat to dump")
+	doListChats := flag.Bool("list-chats", false, "list all available chats")
 	flag.Parse()
 
-	if *appID == 0 || *appHash == "" {
-		println("App ID and hash are required!")
+	config, err := ParseConfig(*configFPath)
+	if err != nil {
+		return merry.Wrap(err)
+	}
+	if *appID != 0 {
+		config.AppID = int32(*appID)
+	}
+	if *appHash != "" {
+		config.AppHash = *appHash
+	}
+	if *chatTitle != "" {
+		config.History = ConfigChatFilterAttrs{Title: chatTitle}
+	}
+	if *sessionFPath != "" {
+		config.SessionFilePath = *sessionFPath
+	}
+	if *outDirPath != "" {
+		config.OutDirPath = *outDirPath
+	}
+
+	if config.AppID == 0 || config.AppHash == "" {
+		println("app_id and app_hash are required (in config or flags)")
 		flag.Usage()
 		os.Exit(2)
 	}
 
-	tg, err := tgConnect(*appID, *appHash, *sessionFName)
+	tg, err := tgConnect(config.AppID, config.AppHash, config.SessionFilePath)
 	if err != nil {
 		return merry.Wrap(err)
 	}
 
-	saver := &JSONFilesHistorySaver{Dirpath: *outDirPath}
-	// saver.SetFileRequestCallback(func(file *TGFileInfo, fpath string) error {
-	// 	_, err := os.Stat(fpath)
-	// 	if os.IsNotExist(err) {
-	// 		log.Info("downloading file to %s", fpath)
-	// 		_, err = tg.DownloadFileToPath(fpath, file.InputLocation, file.DcID, int64(file.Size), &FileProgressLogger{})
-	// 	}
-	// 	return merry.Wrap(err)
-	// })
+	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
+	saver.SetFileRequestCallback(func(chat *Chat, file *TGFileInfo, fpath string) error {
+		var err error
+		if config.Media.Match(chat) == MatchTrue {
+			_, err = os.Stat(fpath)
+			if os.IsNotExist(err) {
+				log.Info("downloading file to %s", fpath)
+				_, err = tg.DownloadFileToPath(fpath, file.InputLocation, file.DcID, int64(file.Size), &FileProgressLogger{})
+			}
+		}
+		return merry.Wrap(err)
+	})
 
 	chats, err := tgLoadChats(tg)
 	if err != nil {
 		return merry.Wrap(err)
 	}
-	for _, d := range chats {
-		if d.Title == *chatName {
-			log.Info("saving messages from: \033[32m%s (%s)\033[0m #%d %T", d.Title, d.Username, d.ID, d.Obj)
-			if err := loadAndSaveMessages(tg, d, saver); err != nil {
-				return merry.Wrap(err)
+
+	FindUnusedChatAttrsFilters(config.History, chats, func(attrs ConfigChatFilterAttrs) {
+		log.Warn("no chats match filter %v", attrs)
+	})
+
+	if *doListChats {
+		for _, chat := range chats {
+			format := "%-7s %10d \033[32m%s\033[0m (%s)"
+			if config.History.Match(chat) != MatchTrue {
+				format = "\033[90m%-7s %10d %s (%s)\033[0m"
+			}
+			log.Info(format, chat.Type, chat.ID, chat.Title, chat.Username)
+		}
+	} else {
+		for _, chat := range chats {
+			if config.History.Match(chat) == MatchTrue {
+				log.Info("saving messages from: \033[32m%s\033[0m (%s) #%d %v",
+					chat.Title, chat.Username, chat.ID, chat.Type)
+				if err := loadAndSaveMessages(tg, chat, saver, config); err != nil {
+					return merry.Wrap(err)
+				}
 			}
 		}
 	}
-
 	return nil
 }
 
