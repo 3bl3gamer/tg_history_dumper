@@ -44,7 +44,7 @@ func TestParseConfig__NoFile(t *testing.T) {
 	assertEqual(t, cfg, &Config{
 		OutDirPath:        "history",
 		SessionFilePath:   "tg.session",
-		RequestIntervalMS: int64(800),
+		RequestIntervalMS: int64(1000),
 		History:           ConfigChatFilterType{Type: ChatUser},
 		Media:             ConfigChatFilterNone{},
 	})
@@ -60,7 +60,7 @@ func TestParseConfig__Empty(t *testing.T) {
 	assertEqual(t, cfg, &Config{
 		OutDirPath:        "history",
 		SessionFilePath:   "tg.session",
-		RequestIntervalMS: int64(800),
+		RequestIntervalMS: int64(1000),
 		History:           ConfigChatFilterType{Type: ChatUser},
 		Media:             ConfigChatFilterNone{},
 	})
@@ -78,7 +78,8 @@ func TestParseConfig__Some(t *testing.T) {
 				"all",
 				{"title": "bla", "username": "uname"},
 				{"type": "channel"}
-			]}
+			]},
+			{"only": {"type": "user"}, "with": {"id": 123}}
 		]
 	}`)
 	defer removeTestConfig(file)
@@ -86,49 +87,74 @@ func TestParseConfig__Some(t *testing.T) {
 
 	cfg, err := ParseConfig(file.Name())
 	assertOk(t, err)
-	id := int32(123)
-	title := "bla"
-	username := "uname"
-	ctype := ChatChannel
+	id123 := int32(123)
+	bla := "bla"
+	uname := "uname"
+	userType := ChatUser
+	channelType := ChatChannel
 	assertEqual(t, cfg, &Config{
 		OutDirPath:        "out",
 		SessionFilePath:   "sessfile",
 		RequestIntervalMS: 500,
 		History: ConfigChatFilterMulti{Inner: []ConfigChatFilter{
 			ConfigChatFilterNone{},
-			ConfigChatFilterAttrs{ID: &id},
+			ConfigChatFilterAttrs{ID: &id123},
 			ConfigChatFilterExclude{Inner: ConfigChatFilterMulti{Inner: []ConfigChatFilter{
 				ConfigChatFilterAll{},
-				ConfigChatFilterAttrs{Title: &title, Username: &username},
-				ConfigChatFilterAttrs{Type: &ctype},
+				ConfigChatFilterAttrs{Title: &bla, Username: &uname},
+				ConfigChatFilterAttrs{Type: &channelType},
 			}}},
+			ConfigChatFilterOnly{
+				Only: ConfigChatFilterAttrs{Type: &userType},
+				With: ConfigChatFilterAttrs{ID: &id123},
+			},
 		}},
 		Media: ConfigChatFilterNone{},
 	})
 }
 
 func TestConfigChatFilter(t *testing.T) {
-	id := int32(123)
-	title := "bla"
-	username := "uname"
-	ctype := ChatChannel
-	f := ConfigChatFilterMulti{[]ConfigChatFilter{
+	var f ConfigChatFilter
+	id123 := int32(123)
+	bla := "bla"
+	uname := "uname"
+	channelType := ChatChannel
+
+	// overrides
+	f = ConfigChatFilterMulti{[]ConfigChatFilter{
 		ConfigChatFilterNone{},
-		ConfigChatFilterAttrs{ID: &id},
-		ConfigChatFilterExclude{ConfigChatFilterAttrs{Title: &title, Username: &username}},
-		ConfigChatFilterAttrs{Type: &ctype},
+		ConfigChatFilterAttrs{ID: &id123},
+		ConfigChatFilterExclude{ConfigChatFilterAttrs{Title: &bla, Username: &uname}},
+		ConfigChatFilterAttrs{Type: &channelType},
 	}}
+	assertEqual(t, f.Match(&Chat{ID: 123}, nil), MatchTrue)
+	assertEqual(t, f.Match(&Chat{Type: ChatChannel}, nil), MatchTrue)
+	assertEqual(t, f.Match(&Chat{ID: 123, Title: "bla", Username: "not-uname"}, nil), MatchTrue)
+	assertEqual(t, f.Match(&Chat{ID: 123, Title: "bla", Username: "uname"}, nil), MatchFalse)
+	assertEqual(t, f.Match(&Chat{ID: 123, Title: "bla", Username: "uname", Type: ChatChannel}, nil), MatchTrue)
+	assertEqual(t, f.Match(&Chat{Title: "no-match"}, nil), MatchFalse)
 
-	assertEqual(t, f.Match(&Chat{ID: 123}), MatchTrue)
-	assertEqual(t, f.Match(&Chat{Type: ChatChannel}), MatchTrue)
-	assertEqual(t, f.Match(&Chat{ID: 123, Title: "bla", Username: "not-uname"}), MatchTrue)
-	assertEqual(t, f.Match(&Chat{ID: 123, Title: "bla", Username: "uname"}), MatchFalse)
-	assertEqual(t, f.Match(&Chat{ID: 123, Title: "bla", Username: "uname", Type: ChatChannel}), MatchTrue)
-	assertEqual(t, f.Match(&Chat{Title: "no-match"}), MatchFalse)
-
+	// no match
 	f = ConfigChatFilterMulti{[]ConfigChatFilter{
 		ConfigChatFilterAll{},
-		ConfigChatFilterAttrs{ID: &id},
+		ConfigChatFilterAttrs{ID: &id123},
 	}}
-	assertEqual(t, f.Match(&Chat{Title: "no-match"}), MatchTrue)
+	assertEqual(t, f.Match(&Chat{Title: "no-match"}, nil), MatchTrue)
+
+	// only-filter
+	f = ConfigChatFilterOnly{
+		Only: ConfigChatFilterAttrs{Type: &channelType},
+		With: ConfigChatFilterAttrs{ID: &id123},
+	}
+	assertEqual(t, f.Match(&Chat{ID: 123, Type: ChatChannel}, nil), MatchTrue)
+	assertEqual(t, f.Match(&Chat{ID: 123, Type: ChatUser}, nil), MatchUndefined)
+	assertEqual(t, f.Match(&Chat{ID: 12, Type: ChatChannel}, nil), MatchUndefined)
+
+	// files
+	size512K := SuffuxedSize(512 * 1024)
+	f = ConfigChatFilterAttrs{ID: &id123, MediaMaxSize: &size512K}
+	assertEqual(t, f.Match(&Chat{ID: 123}, nil), MatchTrue)
+	assertEqual(t, f.Match(&Chat{ID: 123}, &TGFileInfo{Size: 512 * 1024}), MatchTrue)
+	assertEqual(t, f.Match(&Chat{ID: 123}, &TGFileInfo{Size: 512*1024 + 1}), MatchUndefined)
+	assertEqual(t, f.Match(&Chat{ID: 12}, &TGFileInfo{Size: 512 * 1024}), MatchUndefined)
 }

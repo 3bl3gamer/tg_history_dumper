@@ -12,10 +12,11 @@ import (
 
 type LogHandler struct {
 	mtproto.SimpleLogHandler
+	MaxLevel mtproto.LogLevel
 }
 
 func (h LogHandler) Log(level mtproto.LogLevel, err error, msg string, args ...interface{}) {
-	if level != mtproto.DEBUG {
+	if level <= h.MaxLevel {
 		h.SimpleLogHandler.Log(level, err, msg, args...)
 	}
 }
@@ -39,8 +40,9 @@ func (l *FileProgressLogger) OnProgress(fileLocation mtproto.TL, offset, size in
 	}
 }
 
-var tgLogHandler = &LogHandler{}
-var log = mtproto.Logger{Hnd: tgLogHandler}
+var tgLogHandler = &LogHandler{MaxLevel: mtproto.INFO}
+var commonLogHandler = &LogHandler{MaxLevel: mtproto.INFO}
+var log = mtproto.Logger{Hnd: commonLogHandler}
 
 func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, config *Config) error {
 	lastID, err := saver.GetLastMessageID(chat)
@@ -98,6 +100,7 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 }
 
 func dump() error {
+	// flags
 	appID := flag.Int("app-id", 0, "app id")
 	appHash := flag.String("app-hash", "", "app hash")
 	sessionFPath := flag.String("session", "", "session file path")
@@ -105,8 +108,18 @@ func dump() error {
 	configFPath := flag.String("config", "config.json", "path to config file")
 	chatTitle := flag.String("chat", "", "name of the chat to dump")
 	doListChats := flag.Bool("list-chats", false, "list all available chats")
+	logDebug := flag.Bool("debug", false, "show debug log messages")
+	tgLogDebug := flag.Bool("tg-debug", false, "show debug TGClient log messages")
 	flag.Parse()
 
+	if *logDebug {
+		commonLogHandler.MaxLevel = mtproto.DEBUG
+	}
+	if *tgLogDebug {
+		tgLogHandler.MaxLevel = mtproto.DEBUG
+	}
+
+	// config
 	config, err := ParseConfig(*configFPath)
 	if err != nil {
 		return merry.Wrap(err)
@@ -133,6 +146,7 @@ func dump() error {
 		os.Exit(2)
 	}
 
+	// tg setup
 	tg, err := tgConnect(config.AppID, config.AppHash, config.SessionFilePath)
 	if err != nil {
 		return merry.Wrap(err)
@@ -141,36 +155,38 @@ func dump() error {
 	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
 	saver.SetFileRequestCallback(func(chat *Chat, file *TGFileInfo, fpath string) error {
 		var err error
-		if config.Media.Match(chat) == MatchTrue {
+		if config.Media.Match(chat, file) == MatchTrue {
 			_, err = os.Stat(fpath)
 			if os.IsNotExist(err) {
 				log.Info("downloading file to %s", fpath)
 				_, err = tg.DownloadFileToPath(fpath, file.InputLocation, file.DcID, int64(file.Size), &FileProgressLogger{})
 			}
+		} else {
+			log.Debug("skipping file %s", fpath)
 		}
 		return merry.Wrap(err)
 	})
 
+	// loading chats
 	chats, err := tgLoadChats(tg)
 	if err != nil {
 		return merry.Wrap(err)
 	}
 
-	FindUnusedChatAttrsFilters(config.History, chats, func(attrs ConfigChatFilterAttrs) {
-		log.Warn("no chats match filter %v", attrs)
-	})
+	CheckConfig(config, chats)
 
+	// processing chats
 	if *doListChats {
 		for _, chat := range chats {
 			format := "%-7s %10d \033[32m%s\033[0m (%s)"
-			if config.History.Match(chat) != MatchTrue {
+			if config.History.Match(chat, nil) != MatchTrue {
 				format = "\033[90m%-7s %10d %s (%s)\033[0m"
 			}
 			log.Info(format, chat.Type, chat.ID, chat.Title, chat.Username)
 		}
 	} else {
 		for _, chat := range chats {
-			if config.History.Match(chat) == MatchTrue {
+			if config.History.Match(chat, nil) == MatchTrue {
 				log.Info("saving messages from: \033[32m%s\033[0m (%s) #%d %v",
 					chat.Title, chat.Username, chat.ID, chat.Type)
 				if err := loadAndSaveMessages(tg, chat, saver, config); err != nil {

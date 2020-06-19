@@ -261,6 +261,10 @@ func tgGetMessageMediaFileInfo(msgTL mtproto.TL) *TGFileInfo {
 	}
 	switch media := msg.Media.(type) {
 	case mtproto.TL_messageMediaPhoto:
+		if _, ok := media.Photo.(mtproto.TL_photoEmpty); ok {
+			log.Warn("got 'photoEmpty' in media of message #%d", msg.ID)
+			return nil
+		}
 		photo := media.Photo.(mtproto.TL_photo)
 		size := photo.Sizes[len(photo.Sizes)-1].(mtproto.TL_photoSize)
 		return &TGFileInfo{
