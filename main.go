@@ -149,16 +149,16 @@ func isBrokenFileError(err error) bool {
 
 func dump() error {
 	// flags
+	configFPath := flag.String("config", "config.json", "path to config file")
 	appID := flag.Int("app-id", 0, "app id")
 	appHash := flag.String("app-hash", "", "app hash")
-	sosks5addr := flag.String("socks5", "", "socks5 proxy address:port")
-	sessionFPath := flag.String("session", "", "session file path")
-	outDirPath := flag.String("out", "", "output directory path")
-	configFPath := flag.String("config", "config.json", "path to config file")
-	chatTitle := flag.String("chat", "", "name of the chat to dump")
+	sosks5addr := flag.String("socks5", "", "socks5 proxy address:port, overrides config.socks5_proxy_addr")
+	sessionFPath := flag.String("session", "", "session file path, overrides config.session_file_path")
+	outDirPath := flag.String("out", "", "output directory path, overriders config.out_dir_path")
+	chatTitle := flag.String("chat", "", "title of the chat to dump, overrides config.history")
 	doListChats := flag.Bool("list-chats", false, "list all available chats")
 	logDebug := flag.Bool("debug", false, "show debug log messages")
-	tgLogDebug := flag.Bool("tg-debug", false, "show debug TGClient log messages")
+	tgLogDebug := flag.Bool("debug-tg", false, "show debug TGClient log messages")
 	flag.Parse()
 
 	// logging
