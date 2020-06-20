@@ -13,10 +13,10 @@ import (
 	"golang.org/x/net/proxy"
 )
 
-func tgConnect(appID int32, appHash, sessionFPath string) (*tgclient.TGClient, error) {
+func tgConnect(config *Config, logHandler *LogHandler) (*tgclient.TGClient, error) {
 	cfg := &mtproto.AppConfig{
-		AppID:          appID,
-		AppHash:        appHash,
+		AppID:          config.AppID,
+		AppHash:        config.AppHash,
 		AppVersion:     "0.0.1",
 		DeviceModel:    "Unknown",
 		SystemVersion:  runtime.GOOS + "/" + runtime.GOARCH,
@@ -25,14 +25,18 @@ func tgConnect(appID int32, appHash, sessionFPath string) (*tgclient.TGClient, e
 		LangCode:       "en",
 	}
 
-	sessStore := &mtproto.SessFileStore{FPath: sessionFPath}
+	sessStore := &mtproto.SessFileStore{FPath: config.SessionFilePath}
 
-	dialer, err := proxy.SOCKS5("tcp", "127.0.0.1:9050", nil, proxy.Direct)
-	if err != nil {
-		return nil, merry.Wrap(err)
+	var dialer proxy.Dialer
+	if config.Socks5ProxyAddr != "" {
+		var err error
+		dialer, err = proxy.SOCKS5("tcp", config.Socks5ProxyAddr, nil, proxy.Direct)
+		if err != nil {
+			return nil, merry.Wrap(err)
+		}
 	}
 
-	tg := tgclient.NewTGClientExt(cfg, sessStore, tgLogHandler, dialer)
+	tg := tgclient.NewTGClientExt(cfg, sessStore, logHandler, dialer)
 
 	if err := tg.InitAndConnect(); err != nil {
 		return nil, merry.Wrap(err)
@@ -49,28 +53,6 @@ func tgConnect(appID int32, appHash, sessionFPath string) (*tgclient.TGClient, e
 	me := users[0].(mtproto.TL_user)
 	log.Info("logged in as \033[32;1m%s (%s)\033[0m #%d", strings.TrimSpace(me.FirstName+" "+me.LastName), me.Username, me.ID)
 	return tg, nil
-}
-
-func tgSend(tg *tgclient.TGClient, msg mtproto.TLReq) mtproto.TL {
-	for {
-		res := tg.SendSync(msg)
-		if mtproto.IsError(res, "RPC_CALL_FAIL") {
-			log.Warn("got RPC error, retrying")
-			time.Sleep(time.Second)
-			continue
-		}
-		floodPerfix := "FLOOD_WAIT_"
-		if err, ok := res.(mtproto.TL_rpc_error); ok && strings.HasPrefix(err.ErrorMessage, floodPerfix) {
-			secs, _ := strconv.ParseInt(err.ErrorMessage[len(floodPerfix):], 10, 64)
-			if secs == 0 {
-				secs = 5
-			}
-			log.Warn("got flood-wait, retrying in %d second(s)", secs)
-			time.Sleep(time.Duration(secs) * time.Second)
-			continue
-		}
-		return res
-	}
 }
 
 func tgGetMessageStamp(msgTL mtproto.TL) (int32, error) {
@@ -146,11 +128,12 @@ func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 	chats := make([]*Chat, 0)
 	offsetDate := int32(0)
 	for {
-		res := tgSend(tg, mtproto.TL_messages_getDialogs{
+		res := tg.SendSyncRetry(mtproto.TL_messages_getDialogs{
 			OffsetPeer: mtproto.TL_inputPeerEmpty{},
 			OffsetDate: offsetDate,
 			Limit:      100,
-		})
+		}, time.Second, 0, 30*time.Second)
+
 		switch slice := res.(type) {
 		case mtproto.TL_messages_dialogs:
 			chats, err := tgExtractDialogsData(slice.Dialogs, slice.Chats, slice.Users)
@@ -200,14 +183,16 @@ func tgLoadMessages(
 		return nil, nil, merry.Wrap(mtproto.WrongRespError(peerTL))
 	}
 
-	res := tgSend(tg, mtproto.TL_messages_getHistory{
+	res := tg.SendSyncRetry(mtproto.TL_messages_getHistory{
 		Peer:      inputPeer,
 		Limit:     limit,
 		OffsetID:  lastMsgID + 1,
 		AddOffset: -limit,
-	})
+	}, time.Second, 0, 30*time.Second)
 
 	switch messages := res.(type) {
+	case mtproto.TL_messages_messages:
+		return messages.Messages, messages.Users, nil
 	case mtproto.TL_messages_messagesSlice:
 		return messages.Messages, messages.Users, nil
 	case mtproto.TL_messages_channelMessages:
@@ -262,7 +247,7 @@ func tgGetMessageMediaFileInfo(msgTL mtproto.TL) *TGFileInfo {
 	switch media := msg.Media.(type) {
 	case mtproto.TL_messageMediaPhoto:
 		if _, ok := media.Photo.(mtproto.TL_photoEmpty); ok {
-			log.Warn("got 'photoEmpty' in media of message #%d", msg.ID)
+			log.Error(nil, "got 'photoEmpty' in media of message #%d", msg.ID)
 			return nil
 		}
 		photo := media.Photo.(mtproto.TL_photo)

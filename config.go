@@ -22,6 +22,7 @@ type Config struct {
 	AppHash           string
 	History           ConfigChatFilter
 	Media             ConfigChatFilter
+	Socks5ProxyAddr   string
 	RequestIntervalMS int64
 	SessionFilePath   string
 	OutDirPath        string
@@ -176,6 +177,7 @@ type ConfigRaw struct {
 	AppHash           string          `json:"app_hash"`
 	History           json.RawMessage `json:"history"`
 	Media             json.RawMessage `json:"media"`
+	Socks5ProxyAddr   string          `json:"socks5_proxy_addr"`
 	RequestIntervalMS int64           `json:"request_interval_ms"`
 	SessionFilePath   string          `json:"session_file_path"`
 	OutDirPath        string          `json:"out_dir_path"`
@@ -201,8 +203,9 @@ func ParseConfig(fpath string) (*Config, error) {
 	}
 
 	cfg := &Config{
-		AppID:   raw.AppID,
-		AppHash: raw.AppHash,
+		AppID:           raw.AppID,
+		AppHash:         raw.AppHash,
+		Socks5ProxyAddr: raw.Socks5ProxyAddr,
 	}
 
 	cfg.RequestIntervalMS = defaultConfig.RequestIntervalMS

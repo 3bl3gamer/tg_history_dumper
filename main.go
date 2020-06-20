@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	stdlog "log"
 	"os"
 	"time"
 
@@ -12,13 +13,22 @@ import (
 
 type LogHandler struct {
 	mtproto.SimpleLogHandler
-	MaxLevel mtproto.LogLevel
+	ConsoleMaxLevel mtproto.LogLevel
+	ErrorFileLoger  *stdlog.Logger
+	DebugFileLoger  *stdlog.Logger
+	ConsoleLogger   *stdlog.Logger
 }
 
 func (h LogHandler) Log(level mtproto.LogLevel, err error, msg string, args ...interface{}) {
-	if level <= h.MaxLevel {
-		h.SimpleLogHandler.Log(level, err, msg, args...)
+	text := h.StringifyLog(level, err, msg, args...)
+	text = h.AddLevelPrevix(level, text)
+	if level <= h.ConsoleMaxLevel {
+		h.ConsoleLogger.Print(h.AddLevelColor(level, text))
 	}
+	if level <= mtproto.ERROR {
+		h.ErrorFileLoger.Print(text)
+	}
+	h.DebugFileLoger.Print(text)
 }
 
 func (h LogHandler) Message(isIncoming bool, msg mtproto.TL, id int64) {
@@ -27,6 +37,11 @@ func (h LogHandler) Message(isIncoming bool, msg mtproto.TL, id int64) {
 
 type FileProgressLogger struct {
 	prevProgress int64
+	prevTime     time.Time
+}
+
+func NewFileProgressLogger() *FileProgressLogger {
+	return &FileProgressLogger{prevTime: time.Now()}
 }
 
 func (l *FileProgressLogger) OnProgress(fileLocation mtproto.TL, offset, size int64) {
@@ -34,15 +49,14 @@ func (l *FileProgressLogger) OnProgress(fileLocation mtproto.TL, offset, size in
 	if prog == 100 && l.prevProgress == 0 {
 		return //got file in one step, no need to log it
 	}
-	if prog == 100 || prog-l.prevProgress >= 5 {
+	if prog == 100 || time.Now().Sub(l.prevTime) > 2*time.Second {
 		log.Info("%d%%", prog)
 		l.prevProgress = prog
+		l.prevTime = time.Now()
 	}
 }
 
-var tgLogHandler = &LogHandler{MaxLevel: mtproto.INFO}
-var commonLogHandler = &LogHandler{MaxLevel: mtproto.INFO}
-var log = mtproto.Logger{Hnd: commonLogHandler}
+var log mtproto.Logger
 
 func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, config *Config) error {
 	lastID, err := saver.GetLastMessageID(chat)
@@ -99,10 +113,23 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 	return nil
 }
 
+func mustOpen(fpath string) *os.File {
+	file, err := os.OpenFile(fpath, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		panic(err)
+	}
+	return file
+}
+
+func isBrokenFileError(err error) bool {
+	return err != nil && err.Error() == `unexpected file part: mtproto.TL_rpc_error{ErrorCode:400, ErrorMessage:"LOCATION_INVALID"}`
+}
+
 func dump() error {
 	// flags
 	appID := flag.Int("app-id", 0, "app id")
 	appHash := flag.String("app-hash", "", "app hash")
+	sosks5addr := flag.String("socks5", "", "socks5 proxy address:port")
 	sessionFPath := flag.String("session", "", "session file path")
 	outDirPath := flag.String("out", "", "output directory path")
 	configFPath := flag.String("config", "config.json", "path to config file")
@@ -112,11 +139,29 @@ func dump() error {
 	tgLogDebug := flag.Bool("tg-debug", false, "show debug TGClient log messages")
 	flag.Parse()
 
+	// logging
+	commonLogHandler := LogHandler{
+		ConsoleMaxLevel: mtproto.INFO,
+		DebugFileLoger:  stdlog.New(mustOpen("debug.log"), "", stdlog.LstdFlags),
+		ErrorFileLoger:  stdlog.New(mustOpen("error.log"), "", stdlog.LstdFlags),
+		ConsoleLogger:   stdlog.New(os.Stderr, "", stdlog.LstdFlags),
+	}
+	tgLogHandler := commonLogHandler
 	if *logDebug {
-		commonLogHandler.MaxLevel = mtproto.DEBUG
+		commonLogHandler.ConsoleMaxLevel = mtproto.DEBUG
 	}
 	if *tgLogDebug {
-		tgLogHandler.MaxLevel = mtproto.DEBUG
+		tgLogHandler.ConsoleMaxLevel = mtproto.DEBUG
+	}
+	log = mtproto.Logger{Hnd: commonLogHandler}
+
+	// separating from older log
+	for _, logger := range []*stdlog.Logger{commonLogHandler.DebugFileLoger, commonLogHandler.ErrorFileLoger} {
+		logger.Print("")
+		logger.Print("")
+		logger.Print(" === HISTORY DUMP START ===")
+		logger.Print("")
+		logger.Print("")
 	}
 
 	// config
@@ -129,6 +174,9 @@ func dump() error {
 	}
 	if *appHash != "" {
 		config.AppHash = *appHash
+	}
+	if *sosks5addr != "" {
+		config.Socks5ProxyAddr = *sosks5addr
 	}
 	if *chatTitle != "" {
 		config.History = ConfigChatFilterAttrs{Title: chatTitle}
@@ -147,7 +195,7 @@ func dump() error {
 	}
 
 	// tg setup
-	tg, err := tgConnect(config.AppID, config.AppHash, config.SessionFilePath)
+	tg, err := tgConnect(config, &tgLogHandler)
 	if err != nil {
 		return merry.Wrap(err)
 	}
@@ -159,7 +207,11 @@ func dump() error {
 			_, err = os.Stat(fpath)
 			if os.IsNotExist(err) {
 				log.Info("downloading file to %s", fpath)
-				_, err = tg.DownloadFileToPath(fpath, file.InputLocation, file.DcID, int64(file.Size), &FileProgressLogger{})
+				_, err = tg.DownloadFileToPath(fpath, file.InputLocation, file.DcID, int64(file.Size), NewFileProgressLogger())
+				if isBrokenFileError(err) {
+					log.Error(nil, "in chat %d %s (%s): wrong file: %s", chat.ID, chat.Title, chat.Username, fpath)
+					err = nil
+				}
 			}
 		} else {
 			log.Debug("skipping file %s", fpath)
@@ -200,6 +252,7 @@ func dump() error {
 
 func main() {
 	if err := dump(); err != nil {
-		panic(merry.Details(err))
+		log.Error(err, "")
+		os.Exit(1)
 	}
 }
