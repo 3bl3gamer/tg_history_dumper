@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -12,54 +11,6 @@ import (
 	"github.com/3bl3gamer/tgclient/mtproto"
 	"github.com/ansel1/merry"
 )
-
-type ChatType int8
-
-const (
-	ChatUser ChatType = iota
-	ChatGroup
-	ChatChannel
-)
-
-func (t ChatType) String() string {
-	switch t {
-	case ChatUser:
-		return "user"
-	case ChatGroup:
-		return "group"
-	case ChatChannel:
-		return "channel"
-	default:
-		return fmt.Sprintf("??%d??", t)
-	}
-}
-
-func (t *ChatType) UnmarshalJSON(buf []byte) error {
-	var s string
-	if err := json.Unmarshal(buf, &s); err != nil {
-		return merry.Wrap(err)
-	}
-	switch s {
-	case "user":
-		*t = ChatUser
-	case "group":
-		*t = ChatGroup
-	case "channel":
-		*t = ChatChannel
-	default:
-		return merry.New("wrong chat type: " + s)
-	}
-	return nil
-}
-
-type Chat struct {
-	ID            int32
-	Title         string
-	Username      string
-	LastMessageID int32
-	Type          ChatType
-	Obj           mtproto.TL
-}
 
 type UserData struct {
 	ID                    int32
@@ -71,17 +22,32 @@ type UserData struct {
 }
 
 func (u *UserData) Equals(other *mtproto.TL_user) bool {
-	return other != nil &&
-		u.Username == other.Username && u.PhoneNumber == other.Phone &&
+	// Sometimes Username becomes blank and then becomes filled again.
+	// This will produce unnesessary updates in users file. So just ignoring that change.
+	return (other.Username == "" || u.Username == other.Username) &&
 		u.FirstName == other.FirstName && u.LastName == other.LastName &&
+		u.PhoneNumber == other.Phone &&
 		u.LangCode == other.LangCode
+}
+
+type ChatData struct {
+	ID        int32
+	Username  string
+	Title     string
+	IsChannel bool
+	UpdatedAt time.Time
+}
+
+func (c *ChatData) Equals(other *ChatData) bool {
+	return c.Username == other.Username && c.Title == other.Title
 }
 
 type SaveFileCallbackFunc func(*Chat, *TGFileInfo, string) error
 
 type HistorySaver interface {
 	GetLastMessageID(*Chat) (int32, error)
-	SaveSenders([]mtproto.TL) error
+	SaveRelatedUsers([]mtproto.TL) error
+	SaveRelatedChats([]mtproto.TL) error
 	SaveMessages(*Chat, []mtproto.TL) error
 	SetFileRequestCallback(SaveFileCallbackFunc)
 }
@@ -89,6 +55,7 @@ type HistorySaver interface {
 type JSONFilesHistorySaver struct {
 	Dirpath         string
 	usersData       map[int32]*UserData
+	chatsData       map[int32]*ChatData
 	requestFileFunc SaveFileCallbackFunc
 }
 
@@ -106,12 +73,31 @@ func (s JSONFilesHistorySaver) usersFPath() string {
 	return s.Dirpath + "/users"
 }
 
+func (s JSONFilesHistorySaver) chatsFPath() string {
+	return s.Dirpath + "/chats"
+}
+
 func (s JSONFilesHistorySaver) filePath(chat *Chat, msgID int32, fname string) string {
 	fpath := s.Dirpath + "/files/" + s.chatFSName(chat) + "/" + strconv.Itoa(int(msgID)) + "_Media"
 	if fname != "" {
 		fpath += "_" + fname
 	}
 	return fpath
+}
+
+func (s JSONFilesHistorySaver) makeBaseDir() error {
+	return merry.Wrap(os.MkdirAll(s.Dirpath, 0700))
+}
+
+func (s JSONFilesHistorySaver) openForAppend(fpath string) (*os.File, error) {
+	if err := s.makeBaseDir(); err != nil {
+		return nil, merry.Wrap(err)
+	}
+	file, err := os.OpenFile(fpath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return nil, merry.Wrap(err)
+	}
+	return file, nil
 }
 
 func (s JSONFilesHistorySaver) GetLastMessageID(chat *Chat) (int32, error) {
@@ -163,8 +149,8 @@ func (s JSONFilesHistorySaver) GetLastMessageID(chat *Chat) (int32, error) {
 	return int32(id), nil
 }
 
-func (s JSONFilesHistorySaver) loadUsers() error {
-	file, err := os.Open(s.usersFPath())
+func (s JSONFilesHistorySaver) loadRelated(fpath string, obj interface{}, f func(interface{})) error {
+	file, err := os.Open(fpath)
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -175,20 +161,33 @@ func (s JSONFilesHistorySaver) loadUsers() error {
 
 	decoder := json.NewDecoder(file)
 	for {
-		user := &UserData{}
-		err := decoder.Decode(user)
+		err := decoder.Decode(obj)
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
 			return merry.Wrap(err)
 		}
-		s.usersData[user.ID] = user
+		f(obj)
 	}
 	return nil
 }
 
-func (s JSONFilesHistorySaver) SaveSenders(users []mtproto.TL) error {
+func (s JSONFilesHistorySaver) loadUsers() error {
+	return s.loadRelated(s.usersFPath(), &UserData{}, func(userI interface{}) {
+		user := *userI.(*UserData)
+		s.usersData[user.ID] = &user
+	})
+}
+
+func (s JSONFilesHistorySaver) loadChats() error {
+	return s.loadRelated(s.chatsFPath(), &ChatData{}, func(chatI interface{}) {
+		chat := *chatI.(*ChatData)
+		s.chatsData[chat.ID] = &chat
+	})
+}
+
+func (s JSONFilesHistorySaver) SaveRelatedUsers(users []mtproto.TL) error {
 	if s.usersData == nil {
 		s.usersData = make(map[int32]*UserData)
 		if err := s.loadUsers(); err != nil {
@@ -196,6 +195,7 @@ func (s JSONFilesHistorySaver) SaveSenders(users []mtproto.TL) error {
 		}
 	}
 
+	var encoder *json.Encoder
 	for _, userTL := range users {
 		tgUser, ok := userTL.(mtproto.TL_user)
 		if !ok {
@@ -215,15 +215,15 @@ func (s JSONFilesHistorySaver) SaveSenders(users []mtproto.TL) error {
 				UpdatedAt:   time.Now(),
 			}
 
-			if err := os.MkdirAll(s.Dirpath, 0700); err != nil {
-				return merry.Wrap(err)
+			if encoder == nil {
+				file, err := s.openForAppend(s.usersFPath())
+				if err != nil {
+					return merry.Wrap(err)
+				}
+				defer file.Close()
+				encoder = json.NewEncoder(file)
 			}
-			file, err := os.OpenFile(s.usersFPath(), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
-			if err != nil {
-				return merry.Wrap(err)
-			}
-			defer file.Close()
-			if err := json.NewEncoder(file).Encode(newUser); err != nil {
+			if err := encoder.Encode(newUser); err != nil {
 				return merry.Wrap(err)
 			}
 
@@ -233,12 +233,54 @@ func (s JSONFilesHistorySaver) SaveSenders(users []mtproto.TL) error {
 	return nil
 }
 
-func (s JSONFilesHistorySaver) SaveMessages(chat *Chat, messages []mtproto.TL) error {
-	if err := os.MkdirAll(s.Dirpath, 0700); err != nil {
-		return merry.Wrap(err)
+func (s JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
+	if s.chatsData == nil {
+		s.chatsData = make(map[int32]*ChatData)
+		if err := s.loadChats(); err != nil {
+			return merry.Wrap(err)
+		}
 	}
 
-	file, err := os.OpenFile(s.chatFPath(chat), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	var encoder *json.Encoder
+	for _, chatTL := range chats {
+		var newChat *ChatData
+		switch c := chatTL.(type) {
+		case mtproto.TL_chat:
+			newChat = &ChatData{ID: c.ID, Title: c.Title}
+		case mtproto.TL_chatForbidden:
+			newChat = &ChatData{ID: c.ID, Title: c.Title}
+		case mtproto.TL_channel:
+			newChat = &ChatData{ID: c.ID, Title: c.Title, Username: c.Username, IsChannel: !c.Megagroup}
+		case mtproto.TL_channelForbidden:
+			newChat = &ChatData{ID: c.ID, Title: c.Title, IsChannel: !c.Megagroup}
+		default:
+			return merry.Wrap(mtproto.WrongRespError(chatTL))
+		}
+
+		chat, ok := s.chatsData[newChat.ID]
+		if !ok || !chat.Equals(newChat) {
+			newChat.UpdatedAt = time.Now()
+
+			if encoder == nil {
+				file, err := s.openForAppend(s.chatsFPath())
+				if err != nil {
+					return merry.Wrap(err)
+				}
+				defer file.Close()
+				encoder = json.NewEncoder(file)
+			}
+			if err := encoder.Encode(newChat); err != nil {
+				return merry.Wrap(err)
+			}
+
+			s.chatsData[newChat.ID] = newChat
+		}
+	}
+	return nil
+}
+
+func (s JSONFilesHistorySaver) SaveMessages(chat *Chat, messages []mtproto.TL) error {
+	file, err := s.openForAppend(s.chatFPath(chat))
 	if err != nil {
 		return merry.Wrap(err)
 	}

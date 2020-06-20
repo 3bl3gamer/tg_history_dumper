@@ -58,6 +58,24 @@ func (l *FileProgressLogger) OnProgress(fileLocation mtproto.TL, offset, size in
 
 var log mtproto.Logger
 
+func saveChatsAsRelated(chats []*Chat, saver HistorySaver) error {
+	var users, groupsAndChannels []mtproto.TL
+	for _, c := range chats {
+		if _, ok := c.Obj.(mtproto.TL_user); ok {
+			users = append(users, c.Obj)
+		} else {
+			groupsAndChannels = append(groupsAndChannels, c.Obj)
+		}
+	}
+	if err := saver.SaveRelatedUsers(users); err != nil {
+		return merry.Wrap(err)
+	}
+	if err := saver.SaveRelatedChats(groupsAndChannels); err != nil {
+		return merry.Wrap(err)
+	}
+	return nil
+}
+
 func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, config *Config) error {
 	lastID, err := saver.GetLastMessageID(chat)
 	if err != nil {
@@ -76,8 +94,16 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 		log.Info("loading messages: \033[32m%d%%\033[0m from #%d (+%d) until #%d",
 			percent, lastID, limit, chat.LastMessageID)
 
-		allMessages, users, err := tgLoadMessages(tg, chat.Obj, limit, lastID)
+		allMessages, users, chats, err := tgLoadMessages(tg, chat.Obj, limit, lastID)
 		if err != nil {
+			return merry.Wrap(err)
+		}
+
+		if err := saver.SaveRelatedUsers(users); err != nil {
+			return merry.Wrap(err)
+		}
+
+		if err := saver.SaveRelatedChats(chats); err != nil {
 			return merry.Wrap(err)
 		}
 
@@ -96,10 +122,6 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 			}
 		}
 		log.Debug("got %d new message(s)", len(newMessages))
-
-		if err := saver.SaveSenders(users); err != nil {
-			return merry.Wrap(err)
-		}
 
 		if err := saver.SaveMessages(chat, newMessages); err != nil {
 			return merry.Wrap(err)
@@ -237,6 +259,9 @@ func dump() error {
 			log.Info(format, chat.Type, chat.ID, chat.Title, chat.Username)
 		}
 	} else {
+		if err := saveChatsAsRelated(chats, saver); err != nil {
+			return merry.Wrap(err)
+		}
 		for _, chat := range chats {
 			if config.History.Match(chat, nil) == MatchTrue {
 				log.Info("saving messages from: \033[32m%s\033[0m (%s) #%d %v",

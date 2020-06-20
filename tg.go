@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"reflect"
 	"runtime"
 	"strconv"
@@ -12,6 +14,54 @@ import (
 	"github.com/ansel1/merry"
 	"golang.org/x/net/proxy"
 )
+
+type ChatType int8
+
+const (
+	ChatUser ChatType = iota
+	ChatGroup
+	ChatChannel
+)
+
+func (t ChatType) String() string {
+	switch t {
+	case ChatUser:
+		return "user"
+	case ChatGroup:
+		return "group"
+	case ChatChannel:
+		return "channel"
+	default:
+		return fmt.Sprintf("??%d??", t)
+	}
+}
+
+func (t *ChatType) UnmarshalJSON(buf []byte) error {
+	var s string
+	if err := json.Unmarshal(buf, &s); err != nil {
+		return merry.Wrap(err)
+	}
+	switch s {
+	case "user":
+		*t = ChatUser
+	case "group":
+		*t = ChatGroup
+	case "channel":
+		*t = ChatChannel
+	default:
+		return merry.New("wrong chat type: " + s)
+	}
+	return nil
+}
+
+type Chat struct {
+	ID            int32
+	Title         string
+	Username      string
+	LastMessageID int32
+	Type          ChatType
+	Obj           mtproto.TL
+}
 
 func tgConnect(config *Config, logHandler *LogHandler) (*tgclient.TGClient, error) {
 	cfg := &mtproto.AppConfig{
@@ -170,7 +220,7 @@ func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 
 func tgLoadMessages(
 	tg *tgclient.TGClient, peerTL mtproto.TL, limit, lastMsgID int32,
-) ([]mtproto.TL, []mtproto.TL, error) {
+) ([]mtproto.TL, []mtproto.TL, []mtproto.TL, error) {
 	var inputPeer mtproto.TL
 	switch peer := peerTL.(type) {
 	case mtproto.TL_user:
@@ -180,7 +230,7 @@ func tgLoadMessages(
 	case mtproto.TL_channel:
 		inputPeer = mtproto.TL_inputPeerChannel{ChannelID: peer.ID, AccessHash: peer.AccessHash}
 	default:
-		return nil, nil, merry.Wrap(mtproto.WrongRespError(peerTL))
+		return nil, nil, nil, merry.Wrap(mtproto.WrongRespError(peerTL))
 	}
 
 	res := tg.SendSyncRetry(mtproto.TL_messages_getHistory{
@@ -192,13 +242,13 @@ func tgLoadMessages(
 
 	switch messages := res.(type) {
 	case mtproto.TL_messages_messages:
-		return messages.Messages, messages.Users, nil
+		return messages.Messages, messages.Users, messages.Chats, nil
 	case mtproto.TL_messages_messagesSlice:
-		return messages.Messages, messages.Users, nil
+		return messages.Messages, messages.Users, messages.Chats, nil
 	case mtproto.TL_messages_channelMessages:
-		return messages.Messages, messages.Users, nil
+		return messages.Messages, messages.Users, messages.Chats, nil
 	default:
-		return nil, nil, merry.Wrap(mtproto.WrongRespError(res))
+		return nil, nil, nil, merry.Wrap(mtproto.WrongRespError(res))
 	}
 }
 
