@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -44,6 +45,41 @@ func (c *ChatData) Equals(other *ChatData) bool {
 
 type SaveFileCallbackFunc func(*Chat, *TGFileInfo, string) error
 
+func fnameIDPrefix(id int64) string {
+	return strconv.FormatInt(id, 10) + "_"
+}
+
+func escapeNameForFS(name string) string {
+	name = strings.Replace(name, "/", "_", -1)
+	name = strings.Replace(name, ":", "_", -1) //TODO: is it enough?
+	return name
+}
+
+func findFPathForID(dirpath string, id int64, defaultName string) (string, error) {
+	basePath := dirpath + "/" + fnameIDPrefix(id)
+	pattern := basePath + "*"
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return "", merry.Wrap(err)
+	}
+	correctFPath := basePath + escapeNameForFS(defaultName)
+	if len(matches) == 0 {
+		return correctFPath, nil
+	}
+	curFPath := matches[0]
+	if len(matches) > 1 {
+		log.Warn("found multiple files for pattern %s, using %s, ignoring others",
+			pattern, correctFPath)
+	}
+	if curFPath != correctFPath {
+		log.Info("renaming %s -> %s", curFPath, correctFPath)
+		if err := os.Rename(curFPath, correctFPath); err != nil {
+			return "", merry.Wrap(err)
+		}
+	}
+	return correctFPath, nil
+}
+
 type HistorySaver interface {
 	GetLastMessageID(*Chat) (int32, error)
 	SaveRelatedUsers([]mtproto.TL) error
@@ -59,14 +95,8 @@ type JSONFilesHistorySaver struct {
 	requestFileFunc SaveFileCallbackFunc
 }
 
-func (s JSONFilesHistorySaver) chatFSName(chat *Chat) string {
-	title := strings.Replace(chat.Title, "/", "_", -1)
-	title = strings.Replace(title, ":", "_", -1) //TODO: is it enough?
-	return strconv.FormatInt(int64(chat.ID), 10) + "__" + title
-}
-
-func (s JSONFilesHistorySaver) chatFPath(chat *Chat) string {
-	return s.Dirpath + "/" + s.chatFSName(chat)
+func (s JSONFilesHistorySaver) chatFPath(chat *Chat) (string, error) {
+	return findFPathForID(s.Dirpath, int64(chat.ID), chat.Title)
 }
 
 func (s JSONFilesHistorySaver) usersFPath() string {
@@ -77,12 +107,16 @@ func (s JSONFilesHistorySaver) chatsFPath() string {
 	return s.Dirpath + "/chats"
 }
 
-func (s JSONFilesHistorySaver) filePath(chat *Chat, msgID int32, fname string) string {
-	fpath := s.Dirpath + "/files/" + s.chatFSName(chat) + "/" + strconv.Itoa(int(msgID)) + "_Media"
-	if fname != "" {
-		fpath += "_" + fname
+func (s JSONFilesHistorySaver) filePath(chat *Chat, msgID int32, fname string) (string, error) {
+	dirPath, err := findFPathForID(s.Dirpath+"/files", int64(chat.ID), chat.Title)
+	if err != nil {
+		return "", merry.Wrap(err)
 	}
-	return fpath
+	suffix := "Media"
+	if fname != "" {
+		suffix += "_" + fname
+	}
+	return findFPathForID(dirPath, int64(msgID), suffix)
 }
 
 func (s JSONFilesHistorySaver) makeBaseDir() error {
@@ -101,7 +135,11 @@ func (s JSONFilesHistorySaver) openForAppend(fpath string) (*os.File, error) {
 }
 
 func (s JSONFilesHistorySaver) GetLastMessageID(chat *Chat) (int32, error) {
-	file, err := os.Open(s.chatFPath(chat))
+	chatFPath, err := s.chatFPath(chat)
+	if err != nil {
+		return 0, merry.Wrap(err)
+	}
+	file, err := os.Open(chatFPath)
 	if os.IsNotExist(err) {
 		return 0, nil
 	}
@@ -280,7 +318,11 @@ func (s JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
 }
 
 func (s JSONFilesHistorySaver) SaveMessages(chat *Chat, messages []mtproto.TL) error {
-	file, err := s.openForAppend(s.chatFPath(chat))
+	chatFPath, err := s.chatFPath(chat)
+	if err != nil {
+		return merry.Wrap(err)
+	}
+	file, err := s.openForAppend(chatFPath)
 	if err != nil {
 		return merry.Wrap(err)
 	}
@@ -293,7 +335,10 @@ func (s JSONFilesHistorySaver) SaveMessages(chat *Chat, messages []mtproto.TL) e
 		if s.requestFileFunc != nil {
 			fileInfo := tgGetMessageMediaFileInfo(msg)
 			if fileInfo != nil {
-				fpath := s.filePath(chat, msgMap["ID"].(int32), fileInfo.FName)
+				fpath, err := s.filePath(chat, msgMap["ID"].(int32), fileInfo.FName)
+				if err != nil {
+					return merry.Wrap(err)
+				}
 				if err := s.requestFileFunc(chat, fileInfo, fpath); err != nil {
 					return merry.Wrap(err)
 				}

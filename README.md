@@ -67,7 +67,7 @@ Format:
 * `history` — (optional, default is `{"type": "user"}`) chat filtering [rules](#rules);
 * `media` — (optional, default is `"none"`) chat media filtering [rules](#rules), only applies to chats matched to `history` rules.
 
-If config hash non-empty `app_id` and `app_hash`, dump may be updated just with `tg_history_dumper` (without arguments).
+If config has non-empty `app_id` and `app_hash`, dump may be updated just with `tg_history_dumper` (without arguments).
 
 ### Rules
 
