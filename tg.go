@@ -289,6 +289,20 @@ type TGFileInfo struct {
 	FName         string
 }
 
+// findBestPhotoSize returns largest photo size of images.
+// Usually it is the last size-object. But SOME TIMES Sizes aray is reversed.
+func findBestPhotoSize(photo mtproto.TL_photo) *mtproto.TL_photoSize {
+	var bestSize *mtproto.TL_photoSize
+	for _, sizeTL := range photo.Sizes {
+		if size, ok := sizeTL.(mtproto.TL_photoSize); ok {
+			if bestSize == nil || size.Size > bestSize.Size {
+				bestSize = &size
+			}
+		}
+	}
+	return bestSize
+}
+
 func tgGetMessageMediaFileInfo(msgTL mtproto.TL) *TGFileInfo {
 	msg, ok := msgTL.(mtproto.TL_message)
 	if !ok {
@@ -301,7 +315,11 @@ func tgGetMessageMediaFileInfo(msgTL mtproto.TL) *TGFileInfo {
 			return nil
 		}
 		photo := media.Photo.(mtproto.TL_photo)
-		size := photo.Sizes[len(photo.Sizes)-1].(mtproto.TL_photoSize)
+		size := findBestPhotoSize(photo)
+		if size == nil {
+			log.Error(nil, "could not found suitable image size of message #%d", msg.ID)
+			panic("image size search failed")
+		}
 		return &TGFileInfo{
 			InputLocation: mtproto.TL_inputPhotoFileLocation{
 				ID:            photo.ID,
