@@ -1,10 +1,12 @@
 # Telegram History Dumber
 
-Exports messages (as JSON) and media from specified dialogs, groups and channels.
+Exports messages (as [JSON](#format)) and media from specified dialogs, groups and channels.
 
 It gets only new (after already fetched) messages and resumes file downloads (if interrupted).
 
 It works as a Telegram client. So yes, you will have to enter you phone, confirmation code and password (if any).
+
+It **will not fetch channel comments**. If you need them, you should join channel's dicussion group.
 
 ## Installing
 
@@ -61,7 +63,7 @@ Format:
 
 * `app_id` and `app_hash` — see [preparing](#preparing);
 * `socks5_proxy_addr` — (optional) `address:post` of SOCKS5 proxy;
-* `request_interval_ms` — (optional, default is 1000) interval for requesting history messages (may be decreased, though it likely will not have any effect, since TG has query rate limits);
+* `request_interval_ms` — (optional, default is 1000) interval for requesting history message chunks (may be decreased, though it likely will not speed up the process, since TG has query rate limits);
 * `session_file_path` — (optional, default is `tg.session`) session file location (you will not have to login next time if it is present);
 * `out_dir_path` — (optional, default is `history`) folder for saved messages and media;
 * `history` — (optional, default is `{"type": "user"}`) chat filtering [rules](#rules);
@@ -71,7 +73,7 @@ If config has non-empty `app_id` and `app_hash`, dump may be updated just with `
 
 ### Rules
 
-Rules used to accept/reject specifict chats (or media in these chats).
+Rules used to accept/reject specific chats (or media in these chats).
 Chat/file is accepted if it matches to some rules and not later excluded by others. Everything is rejected by default.
 
 For example, this rule accepts only dialogs:
@@ -210,3 +212,22 @@ Usage of tg_history_dumper:
   -socks5 string
       socks5 proxy address:port, overrides config.socks5_proxy_addr
 ```
+
+## Format
+
+## Messages
+
+All messages are saved as JSON Lines (aka jsonl) to file `history/<id>_<title>`. Dumper searches directories only by id and renames folder when title is changed.
+
+Each JSON object has special field `"_"` with type name. Outermost objects has one more special field `"_TL_LAYER"` with layer number (API version). For example:
+
+```json
+{"Date":1601491406,"Message":"Hello World!","PeerID":{"ChannelID":1261507434,"_":"TL_peerChannel"},"_":"TL_message","_TL_LAYER":119}
+```
+(some message fields were removed for readability)
+
+## Peers
+
+Related users and chats are saved to `history/users` and `history/chats` respectively. Each file is JSON Lines with some basic user/chat data like id, usrname, first/lastname, title, etc.
+
+Lines are added not only when new peer is encountered but also when existing peer data (title for example) has changed from previous dump. So same users/chats may appear multiple times there. The last record for each id is the most recent one.
