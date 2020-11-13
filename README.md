@@ -1,5 +1,7 @@
 # Telegram History Dumber
 
+[中文](./README_zh.md)
+
 Exports messages (as [JSON](#format)) and media from specified dialogs, groups and channels.
 
 It gets only new (after already fetched) messages and resumes file downloads (if interrupted).
