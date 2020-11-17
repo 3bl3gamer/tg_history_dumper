@@ -230,6 +230,8 @@ Each JSON object has special field `"_"` with type name. Outermost objects has o
 
 ## Peers
 
-Related users and chats are saved to `history/users` and `history/chats` respectively. Each file is JSON Lines with some basic user/chat data like id, usrname, first/lastname, title, etc.
+Related users and chats (aka peers) are saved to `history/users` and `history/chats` respectively. Each file is JSON Lines with some basic user/chat data like id, usrname, first/lastname, title, etc.
 
-Lines are added not only when new peer is encountered but also when existing peer data (title for example) has changed from previous dump. So same users/chats may appear multiple times there. The last record for each id is the most recent one.
+Lines are added not only when new peer is encountered but also when existing peer data (title for example) has changed compared to previous dump. So same users/chats may appear multiple times there. The last record for each id is the most recent one.
+
+This applies only to users/chats *own* fields (name, phone, etc.). History messages are saved only once, edit/deletion is not detected.
