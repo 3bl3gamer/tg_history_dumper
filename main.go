@@ -136,7 +136,7 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 }
 
 func mustOpen(fpath string) *os.File {
-	file, err := os.OpenFile(fpath, os.O_APPEND|os.O_WRONLY, 0600)
+	file, err := os.OpenFile(fpath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		panic(err)
 	}
@@ -162,10 +162,11 @@ func dump() error {
 	flag.Parse()
 
 	// logging
+	binaryPath, _ := filepath.Abs(filepath.Dir(os.Args[0]))
 	commonLogHandler := LogHandler{
 		ConsoleMaxLevel: mtproto.INFO,
-		DebugFileLoger:  stdlog.New(mustOpen("debug.log"), "", stdlog.LstdFlags),
-		ErrorFileLoger:  stdlog.New(mustOpen("error.log"), "", stdlog.LstdFlags),
+		DebugFileLoger:  stdlog.New(mustOpen(filepath.Join(binaryPath,"debug.log")), "", stdlog.LstdFlags),
+		ErrorFileLoger:  stdlog.New(mustOpen(filepath.Join(binaryPath,"error.log")), "", stdlog.LstdFlags),
 		ConsoleLogger:   stdlog.New(os.Stderr, "", stdlog.LstdFlags),
 	}
 	tgLogHandler := commonLogHandler
