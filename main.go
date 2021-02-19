@@ -4,6 +4,7 @@ import (
 	"flag"
 	stdlog "log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/3bl3gamer/tgclient"
@@ -162,11 +163,12 @@ func dump() error {
 	flag.Parse()
 
 	// logging
-	binaryPath, _ := filepath.Abs(filepath.Dir(os.Args[0]))
+	executablePath, _ := os.Executable()
+	executableDir := filepath.Dir(executablePath)
 	commonLogHandler := LogHandler{
 		ConsoleMaxLevel: mtproto.INFO,
-		DebugFileLoger:  stdlog.New(mustOpen(filepath.Join(binaryPath,"debug.log")), "", stdlog.LstdFlags),
-		ErrorFileLoger:  stdlog.New(mustOpen(filepath.Join(binaryPath,"error.log")), "", stdlog.LstdFlags),
+		DebugFileLoger:  stdlog.New(mustOpen(filepath.Join(executableDir,"debug.log")), "", stdlog.LstdFlags),
+		ErrorFileLoger:  stdlog.New(mustOpen(filepath.Join(executableDir,"error.log")), "", stdlog.LstdFlags),
 		ConsoleLogger:   stdlog.New(os.Stderr, "", stdlog.LstdFlags),
 	}
 	tgLogHandler := commonLogHandler
