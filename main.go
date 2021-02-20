@@ -4,6 +4,7 @@ import (
 	"flag"
 	stdlog "log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/3bl3gamer/tgclient"
@@ -136,7 +137,7 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 }
 
 func mustOpen(fpath string) *os.File {
-	file, err := os.OpenFile(fpath, os.O_APPEND|os.O_WRONLY, 0600)
+	file, err := os.OpenFile(fpath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		panic(err)
 	}
@@ -162,10 +163,12 @@ func dump() error {
 	flag.Parse()
 
 	// logging
+	executablePath, _ := os.Executable()
+	executableDir := filepath.Dir(executablePath)
 	commonLogHandler := LogHandler{
 		ConsoleMaxLevel: mtproto.INFO,
-		DebugFileLoger:  stdlog.New(mustOpen("debug.log"), "", stdlog.LstdFlags),
-		ErrorFileLoger:  stdlog.New(mustOpen("error.log"), "", stdlog.LstdFlags),
+		DebugFileLoger:  stdlog.New(mustOpen(filepath.Join(executableDir,"debug.log")), "", stdlog.LstdFlags),
+		ErrorFileLoger:  stdlog.New(mustOpen(filepath.Join(executableDir,"error.log")), "", stdlog.LstdFlags),
 		ConsoleLogger:   stdlog.New(os.Stderr, "", stdlog.LstdFlags),
 	}
 	tgLogHandler := commonLogHandler
