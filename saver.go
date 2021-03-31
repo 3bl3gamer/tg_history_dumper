@@ -116,7 +116,7 @@ func (s JSONFilesHistorySaver) filePath(chat *Chat, msgID int32, fname string) (
 	if fname != "" {
 		suffix += "_" + fname
 	}
-	return findFPathForID(dirPath, int64(msgID), suffix)
+	return dirPath + "/" + fnameIDPrefix(int64(msgID)) + escapeNameForFS(suffix), nil
 }
 
 func (s JSONFilesHistorySaver) makeBaseDir() error {

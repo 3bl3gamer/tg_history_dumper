@@ -128,6 +128,13 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 			return merry.Wrap(err)
 		}
 
+		if len(newMessages) < int(limit) && lastID < chat.LastMessageID {
+			log.Warn(
+				"go %d message(s) (instead of %d), but their last ID=%d is still less than chat last message ID=%d; "+
+					"maybe someone has removed last message(s) while we were dumping; stopping with this chat for now.",
+				len(newMessages), limit, lastID, chat.LastMessageID)
+		}
+
 		now := time.Now()
 		delta := time.Duration(config.RequestIntervalMS)*time.Millisecond - now.Sub(prevIterTime)
 		time.Sleep(delta)
@@ -167,8 +174,8 @@ func dump() error {
 	executableDir := filepath.Dir(executablePath)
 	commonLogHandler := LogHandler{
 		ConsoleMaxLevel: mtproto.INFO,
-		DebugFileLoger:  stdlog.New(mustOpen(filepath.Join(executableDir,"debug.log")), "", stdlog.LstdFlags),
-		ErrorFileLoger:  stdlog.New(mustOpen(filepath.Join(executableDir,"error.log")), "", stdlog.LstdFlags),
+		DebugFileLoger:  stdlog.New(mustOpen(filepath.Join(executableDir, "debug.log")), "", stdlog.LstdFlags),
+		ErrorFileLoger:  stdlog.New(mustOpen(filepath.Join(executableDir, "error.log")), "", stdlog.LstdFlags),
 		ConsoleLogger:   stdlog.New(os.Stderr, "", stdlog.LstdFlags),
 	}
 	tgLogHandler := commonLogHandler
