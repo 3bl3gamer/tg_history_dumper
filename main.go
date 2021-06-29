@@ -257,6 +257,24 @@ func dump() error {
 		return merry.Wrap(err)
 	}
 
+	// loading contacts
+	contacts, err := tgLoadContacts(tg)
+	if err != nil {
+		return merry.Wrap(err)
+	}
+
+	contactsList := contacts.(mtproto.TL_contacts_contacts)
+	saver.SaveContacts(contactsList.Users[0])
+
+	// loading sessions
+	sessions, err := tgLoadAuths(tg)
+	if err != nil {
+		return merry.Wrap(err)
+	}
+
+	AuthList := sessions.(mtproto.TL_account_authorizations)
+	saver.SaveAuths(AuthList.Authorizations[0])
+
 	CheckConfig(config, chats)
 
 	// processing chats

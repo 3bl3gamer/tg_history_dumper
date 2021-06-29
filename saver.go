@@ -107,6 +107,18 @@ func (s JSONFilesHistorySaver) chatsFPath() string {
 	return s.Dirpath + "/chats"
 }
 
+func (s JSONFilesHistorySaver) contactsFPath() string {
+	return s.Dirpath + "/contacts"
+}
+
+func (s JSONFilesHistorySaver) authsFPath() string {
+	return s.Dirpath + "/auths"
+}
+
+func (s JSONFilesHistorySaver) accountFPath() string {
+	return s.Dirpath + "/account"
+}
+
 func (s JSONFilesHistorySaver) filePath(chat *Chat, msgID int32, fname string) (string, error) {
 	dirPath, err := findFPathForID(s.Dirpath+"/files", int64(chat.ID), chat.Title)
 	if err != nil {
@@ -128,6 +140,17 @@ func (s JSONFilesHistorySaver) openForAppend(fpath string) (*os.File, error) {
 		return nil, merry.Wrap(err)
 	}
 	file, err := os.OpenFile(fpath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return nil, merry.Wrap(err)
+	}
+	return file, nil
+}
+
+func (s JSONFilesHistorySaver) openForCreate(fpath string) (*os.File, error) {
+	if err := s.makeBaseDir(); err != nil {
+		return nil, merry.Wrap(err)
+	}
+	file, err := os.OpenFile(fpath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return nil, merry.Wrap(err)
 	}
@@ -314,6 +337,63 @@ func (s JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
 			s.chatsData[newChat.ID] = newChat
 		}
 	}
+	return nil
+}
+
+func (s JSONFilesHistorySaver) SaveContacts(contacts mtproto.TL) error {
+
+	var encoder *json.Encoder
+
+	if encoder == nil {
+		file, err := s.openForCreate(s.contactsFPath())
+		if err != nil {
+			return merry.Wrap(err)
+		}
+		defer file.Close()
+		encoder = json.NewEncoder(file)
+	}
+	if err := encoder.Encode(contacts); err != nil {
+		return merry.Wrap(err)
+	}
+
+	return nil
+}
+
+func (s JSONFilesHistorySaver) SaveAuths(auths mtproto.TL) error {
+
+	var encoder *json.Encoder
+
+	if encoder == nil {
+		file, err := s.openForCreate(s.authsFPath())
+		if err != nil {
+			return merry.Wrap(err)
+		}
+		defer file.Close()
+		encoder = json.NewEncoder(file)
+	}
+	if err := encoder.Encode(auths); err != nil {
+		return merry.Wrap(err)
+	}
+
+	return nil
+}
+
+func (s JSONFilesHistorySaver) SaveAccount(me mtproto.TL_user) error {
+
+	var encoder *json.Encoder
+
+	if encoder == nil {
+		file, err := s.openForCreate(s.accountFPath())
+		if err != nil {
+			return merry.Wrap(err)
+		}
+		defer file.Close()
+		encoder = json.NewEncoder(file)
+	}
+	if err := encoder.Encode(me); err != nil {
+		return merry.Wrap(err)
+	}
+
 	return nil
 }
 

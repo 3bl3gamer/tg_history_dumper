@@ -101,6 +101,10 @@ func tgConnect(config *Config, logHandler *LogHandler) (*tgclient.TGClient, erro
 		return nil, merry.Wrap(mtproto.WrongRespError(res))
 	}
 	me := users[0].(mtproto.TL_user)
+
+	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
+	saver.SaveAccount(me)
+
 	log.Info("logged in as \033[32;1m%s (%s)\033[0m #%d", strings.TrimSpace(me.FirstName+" "+me.LastName), me.Username, me.ID)
 	return tg, nil
 }
@@ -216,6 +220,24 @@ func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 			return nil, merry.Wrap(mtproto.WrongRespError(res))
 		}
 	}
+}
+
+func tgLoadContacts(tg *tgclient.TGClient) (mtproto.TL, error) {
+
+	var stri int32 = 0
+	res := tg.SendSyncRetry(mtproto.TL_contacts_getContacts{
+		Hash: stri,
+	}, time.Second, 0, 30*time.Second)
+
+	//fmt.Println("contacts response:", slog.StringifyIndent(res, "  "))
+	return res, nil
+}
+
+func tgLoadAuths(tg *tgclient.TGClient) (mtproto.TL, error) {
+
+	res := tg.SendSyncRetry(mtproto.TL_account_getAuthorizations{}, time.Second, 0, 30*time.Second)
+	//fmt.Println("contacts response:", slog.StringifyIndent(res, "  "))
+	return res, nil
 }
 
 func tgLoadMessages(
