@@ -264,7 +264,7 @@ func dump() error {
 	}
 
 	contactsList := contacts.(mtproto.TL_contacts_contacts)
-	saver.SaveContacts(contactsList.Users[0])
+	saver.SaveContacts(contactsList.Users)
 
 	// loading sessions
 	sessions, err := tgLoadAuths(tg)
@@ -273,7 +273,7 @@ func dump() error {
 	}
 
 	AuthList := sessions.(mtproto.TL_account_authorizations)
-	saver.SaveAuths(AuthList.Authorizations[0])
+	saver.SaveAuths(AuthList.Authorizations)
 
 	CheckConfig(config, chats)
 

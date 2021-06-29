@@ -340,7 +340,7 @@ func (s JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
 	return nil
 }
 
-func (s JSONFilesHistorySaver) SaveContacts(contacts mtproto.TL) error {
+func (s JSONFilesHistorySaver) SaveContacts(contacts []mtproto.TL) error {
 
 	var encoder *json.Encoder
 
@@ -359,7 +359,7 @@ func (s JSONFilesHistorySaver) SaveContacts(contacts mtproto.TL) error {
 	return nil
 }
 
-func (s JSONFilesHistorySaver) SaveAuths(auths mtproto.TL) error {
+func (s JSONFilesHistorySaver) SaveAuths(auths []mtproto.TL) error {
 
 	var encoder *json.Encoder
 
