@@ -63,7 +63,7 @@ type Chat struct {
 	Obj           mtproto.TL
 }
 
-func tgConnect(config *Config, logHandler *LogHandler) (*tgclient.TGClient, error) {
+func tgConnect(config *Config, logHandler *LogHandler) (*tgclient.TGClient, *mtproto.TL_user, error) {
 	cfg := &mtproto.AppConfig{
 		AppID:          config.AppID,
 		AppHash:        config.AppHash,
@@ -82,31 +82,28 @@ func tgConnect(config *Config, logHandler *LogHandler) (*tgclient.TGClient, erro
 		var err error
 		dialer, err = proxy.SOCKS5("tcp", config.Socks5ProxyAddr, nil, proxy.Direct)
 		if err != nil {
-			return nil, merry.Wrap(err)
+			return nil, nil, merry.Wrap(err)
 		}
 	}
 
 	tg := tgclient.NewTGClientExt(cfg, sessStore, logHandler, dialer)
 
 	if err := tg.InitAndConnect(); err != nil {
-		return nil, merry.Wrap(err)
+		return nil, nil, merry.Wrap(err)
 	}
 
 	res, err := tg.AuthExt(mtproto.ScanfAuthDataProvider{}, mtproto.TL_users_getUsers{ID: []mtproto.TL{mtproto.TL_inputUserSelf{}}})
 	if err != nil {
-		return nil, merry.Wrap(err)
+		return nil, nil, merry.Wrap(err)
 	}
 	users, ok := res.(mtproto.VectorObject)
 	if !ok {
-		return nil, merry.Wrap(mtproto.WrongRespError(res))
+		return nil, nil, merry.Wrap(mtproto.WrongRespError(res))
 	}
 	me := users[0].(mtproto.TL_user)
 
-	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
-	saver.SaveAccount(me)
-
 	log.Info("logged in as \033[32;1m%s (%s)\033[0m #%d", strings.TrimSpace(me.FirstName+" "+me.LastName), me.Username, me.ID)
-	return tg, nil
+	return tg, &me, nil
 }
 
 func tgGetMessageStamp(msgTL mtproto.TL) (int32, error) {

@@ -15,6 +15,9 @@ var defaultConfig = &Config{
 	RequestIntervalMS: 1000,
 	SessionFilePath:   "tg.session",
 	OutDirPath:        "history",
+	DoAccountDump:     false,
+	DoContactsDump:    false,
+	DoSessionsDump:    false,
 }
 
 type Config struct {
@@ -26,6 +29,9 @@ type Config struct {
 	RequestIntervalMS int64
 	SessionFilePath   string
 	OutDirPath        string
+	DoAccountDump     bool
+	DoContactsDump    bool
+	DoSessionsDump    bool
 }
 
 type SuffuxedSize int64
@@ -181,6 +187,9 @@ type ConfigRaw struct {
 	RequestIntervalMS int64           `json:"request_interval_ms"`
 	SessionFilePath   string          `json:"session_file_path"`
 	OutDirPath        string          `json:"out_dir_path"`
+	DoAccountDump     bool            `json:"dump_account"`
+	DoContactsDump    bool            `json:"dump_contacts"`
+	DoSessionsDump    bool            `json:"dump_sessions"`
 }
 
 var silentParseTestMode = false
@@ -221,6 +230,21 @@ func ParseConfig(fpath string) (*Config, error) {
 	cfg.OutDirPath = defaultConfig.OutDirPath
 	if raw.OutDirPath != "" {
 		cfg.OutDirPath = raw.OutDirPath
+	}
+
+	cfg.DoAccountDump = defaultConfig.DoAccountDump
+	if raw.OutDirPath != "" {
+		cfg.DoAccountDump = raw.DoAccountDump
+	}
+
+	cfg.DoContactsDump = defaultConfig.DoContactsDump
+	if raw.OutDirPath != "" {
+		cfg.DoContactsDump = raw.DoContactsDump
+	}
+
+	cfg.DoSessionsDump = defaultConfig.DoSessionsDump
+	if raw.OutDirPath != "" {
+		cfg.DoSessionsDump = raw.DoSessionsDump
 	}
 
 	cfg.History = defaultConfig.History

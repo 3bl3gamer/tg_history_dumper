@@ -1,3 +1,7 @@
 tg_history_dumper
 tg.session
 json
+debug.log
+error.log
+/history
+config.json

@@ -146,7 +146,7 @@ func (s JSONFilesHistorySaver) openForAppend(fpath string) (*os.File, error) {
 	return file, nil
 }
 
-func (s JSONFilesHistorySaver) openForCreate(fpath string) (*os.File, error) {
+func (s JSONFilesHistorySaver) openAndTruncate(fpath string) (*os.File, error) {
 	if err := s.makeBaseDir(); err != nil {
 		return nil, merry.Wrap(err)
 	}
@@ -342,16 +342,13 @@ func (s JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
 
 func (s JSONFilesHistorySaver) SaveContacts(contacts []mtproto.TL) error {
 
-	var encoder *json.Encoder
-
-	if encoder == nil {
-		file, err := s.openForCreate(s.contactsFPath())
-		if err != nil {
-			return merry.Wrap(err)
-		}
-		defer file.Close()
-		encoder = json.NewEncoder(file)
+	file, err := s.openAndTruncate(s.contactsFPath())
+	if err != nil {
+		return merry.Wrap(err)
 	}
+	defer file.Close()
+	encoder := json.NewEncoder(file)
+
 	if err := encoder.Encode(contacts); err != nil {
 		return merry.Wrap(err)
 	}
@@ -361,16 +358,13 @@ func (s JSONFilesHistorySaver) SaveContacts(contacts []mtproto.TL) error {
 
 func (s JSONFilesHistorySaver) SaveAuths(auths []mtproto.TL) error {
 
-	var encoder *json.Encoder
-
-	if encoder == nil {
-		file, err := s.openForCreate(s.authsFPath())
-		if err != nil {
-			return merry.Wrap(err)
-		}
-		defer file.Close()
-		encoder = json.NewEncoder(file)
+	file, err := s.openAndTruncate(s.authsFPath())
+	if err != nil {
+		return merry.Wrap(err)
 	}
+	defer file.Close()
+	encoder := json.NewEncoder(file)
+
 	if err := encoder.Encode(auths); err != nil {
 		return merry.Wrap(err)
 	}
@@ -380,16 +374,13 @@ func (s JSONFilesHistorySaver) SaveAuths(auths []mtproto.TL) error {
 
 func (s JSONFilesHistorySaver) SaveAccount(me mtproto.TL_user) error {
 
-	var encoder *json.Encoder
-
-	if encoder == nil {
-		file, err := s.openForCreate(s.accountFPath())
-		if err != nil {
-			return merry.Wrap(err)
-		}
-		defer file.Close()
-		encoder = json.NewEncoder(file)
+	file, err := s.openAndTruncate(s.accountFPath())
+	if err != nil {
+		return merry.Wrap(err)
 	}
+	defer file.Close()
+	encoder := json.NewEncoder(file)
+
 	if err := encoder.Encode(me); err != nil {
 		return merry.Wrap(err)
 	}

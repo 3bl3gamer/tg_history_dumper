@@ -60,6 +60,9 @@ Format:
         {"type": "user"},
         {"username": "my_channel"}
     ],
+    "dump_account": false,
+    "dump_contacts": false,
+    "dump_sessions": false
 }
 ```
 
@@ -70,6 +73,10 @@ Format:
 * `out_dir_path` — (optional, default is `history`) folder for saved messages and media;
 * `history` — (optional, default is `{"type": "user"}`) chat filtering [rules](#rules);
 * `media` — (optional, default is `"none"`) chat media filtering [rules](#rules), only applies to chats matched to `history` rules.
+
+* `dump_account` — (optional, default is `"false"`) dumps basic account information to file, does not apply when `-list-chats` enabled.
+* `dump_contacts` — (optional, default is `"false"`) dumps contacts information to file, does not apply when `-list-chats` enabled.
+* `dump_sessions` — (optional, default is `"false"`) dumps active sessions to file, does not apply when `-list-chats` enabled.
 
 If config has non-empty `app_id` and `app_hash`, dump may be updated just with `tg_history_dumper` (without arguments).
 
@@ -194,25 +201,31 @@ and update messages only from `Some Chat`.
 $ tg_history_dumper --help
 Usage of tg_history_dumper:
   -app-hash string
-      app hash
+        app hash
   -app-id int
-      app id
+        app id
   -chat string
-      title of the chat to dump, overrides config.history
+        title of the chat to dump, overrides config.history
   -config string
-      path to config file (default "config.json")
+        path to config file (default "config.json")
   -debug
-      show debug log messages
+        show debug log messages
   -debug-tg
-      show debug TGClient log messages
+        show debug TGClient log messages
+  -dump-account string
+        enable basic user information dump
+  -dump-contacts string
+        enable contacts dump
+  -dump-sessions string
+        enable active sessions dump
   -list-chats
-      list all available chats
+        list all available chats
   -out string
-      output directory path, overriders config.out_dir_path
+        output directory path, overriders config.out_dir_path
   -session string
-      session file path, overrides config.session_file_path
+        session file path, overrides config.session_file_path
   -socks5 string
-      socks5 proxy address:port, overrides config.socks5_proxy_addr
+        socks5 proxy address:port, overrides config.socks5_proxy_addr
 ```
 
 ## Format

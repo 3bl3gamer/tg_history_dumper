@@ -5,6 +5,7 @@ import (
 	stdlog "log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/3bl3gamer/tgclient"
@@ -167,6 +168,9 @@ func dump() error {
 	doListChats := flag.Bool("list-chats", false, "list all available chats")
 	logDebug := flag.Bool("debug", false, "show debug log messages")
 	tgLogDebug := flag.Bool("debug-tg", false, "show debug TGClient log messages")
+	doAccountDump := flag.String("dump-account", "", "enable basic user information dump")
+	doContactsDump := flag.String("dump-contacts", "", "enable contacts dump")
+	doSessionsDump := flag.String("dump-sessions", "", "enable active sessions dump")
 	flag.Parse()
 
 	// logging
@@ -219,6 +223,18 @@ func dump() error {
 	if *outDirPath != "" {
 		config.OutDirPath = *outDirPath
 	}
+	if *doAccountDump != "" {
+		accDumpBool, _ := strconv.ParseBool(*doAccountDump)
+		config.DoAccountDump = accDumpBool
+	}
+	if *doContactsDump != "" {
+		cntDumpBoll, _ := strconv.ParseBool(*doContactsDump)
+		config.DoContactsDump = cntDumpBoll
+	}
+	if *doSessionsDump != "" {
+		sessDumpBool, _ := strconv.ParseBool(*doSessionsDump)
+		config.DoSessionsDump = sessDumpBool
+	}
 
 	if config.AppID == 0 || config.AppHash == "" {
 		println("app_id and app_hash are required (in config or flags)")
@@ -227,7 +243,7 @@ func dump() error {
 	}
 
 	// tg setup
-	tg, err := tgConnect(config, &tgLogHandler)
+	tg, me, err := tgConnect(config, &tgLogHandler)
 	if err != nil {
 		return merry.Wrap(err)
 	}
@@ -257,24 +273,6 @@ func dump() error {
 		return merry.Wrap(err)
 	}
 
-	// loading contacts
-	contacts, err := tgLoadContacts(tg)
-	if err != nil {
-		return merry.Wrap(err)
-	}
-
-	contactsList := contacts.(mtproto.TL_contacts_contacts)
-	saver.SaveContacts(contactsList.Users)
-
-	// loading sessions
-	sessions, err := tgLoadAuths(tg)
-	if err != nil {
-		return merry.Wrap(err)
-	}
-
-	AuthList := sessions.(mtproto.TL_account_authorizations)
-	saver.SaveAuths(AuthList.Authorizations)
-
 	CheckConfig(config, chats)
 
 	// processing chats
@@ -287,6 +285,38 @@ func dump() error {
 			log.Info(format, chat.Type, chat.ID, chat.Title, chat.Username)
 		}
 	} else {
+
+		// save user info
+		if me != nil && config.DoAccountDump {
+			saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
+			saver.SaveAccount(*me)
+			log.Info("User Account Info Saved")
+		}
+
+		// save contacts
+		if config.DoContactsDump {
+			contacts, err := tgLoadContacts(tg)
+			if err != nil {
+				return merry.Wrap(err)
+			}
+
+			contactsList := contacts.(mtproto.TL_contacts_contacts)
+			saver.SaveContacts(contactsList.Users)
+			log.Info("Contacts Saved")
+		}
+
+		// save sessions
+		if config.DoSessionsDump {
+			sessions, err := tgLoadAuths(tg)
+			if err != nil {
+				return merry.Wrap(err)
+			}
+
+			AuthList := sessions.(mtproto.TL_account_authorizations)
+			saver.SaveAuths(AuthList.Authorizations)
+			log.Info("Active Sessions Saved")
+		}
+
 		if err := saveChatsAsRelated(chats, saver); err != nil {
 			return merry.Wrap(err)
 		}
