@@ -5,7 +5,6 @@ import (
 	stdlog "log"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/3bl3gamer/tgclient"
@@ -168,9 +167,9 @@ func dump() error {
 	doListChats := flag.Bool("list-chats", false, "list all available chats")
 	logDebug := flag.Bool("debug", false, "show debug log messages")
 	tgLogDebug := flag.Bool("debug-tg", false, "show debug TGClient log messages")
-	doAccountDump := flag.String("dump-account", "", "enable basic user information dump")
-	doContactsDump := flag.String("dump-contacts", "", "enable contacts dump")
-	doSessionsDump := flag.String("dump-sessions", "", "enable active sessions dump")
+	doAccountDump := flag.String("dump-account", "", "enable basic user information dump, use 'write' to enable dump, overriders config.dump_account")
+	doContactsDump := flag.String("dump-contacts", "", "enable contacts dump, use 'write' to enable dump, overriders config.dump_contacts")
+	doSessionsDump := flag.String("dump-sessions", "", "enable active sessions dump, use 'write' to enable dump, overriders config.dump_sessions")
 	flag.Parse()
 
 	// logging
@@ -224,16 +223,13 @@ func dump() error {
 		config.OutDirPath = *outDirPath
 	}
 	if *doAccountDump != "" {
-		accDumpBool, _ := strconv.ParseBool(*doAccountDump)
-		config.DoAccountDump = accDumpBool
+		config.DoAccountDump = *doAccountDump
 	}
 	if *doContactsDump != "" {
-		cntDumpBoll, _ := strconv.ParseBool(*doContactsDump)
-		config.DoContactsDump = cntDumpBoll
+		config.DoContactsDump = *doContactsDump
 	}
 	if *doSessionsDump != "" {
-		sessDumpBool, _ := strconv.ParseBool(*doSessionsDump)
-		config.DoSessionsDump = sessDumpBool
+		config.DoSessionsDump = *doSessionsDump
 	}
 
 	if config.AppID == 0 || config.AppHash == "" {
@@ -287,14 +283,14 @@ func dump() error {
 	} else {
 
 		// save user info
-		if me != nil && config.DoAccountDump {
+		if me != nil && config.DoAccountDump == "write" {
 			saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
 			saver.SaveAccount(*me)
 			log.Info("User Account Info Saved")
 		}
 
 		// save contacts
-		if config.DoContactsDump {
+		if config.DoContactsDump == "write" {
 			contacts, err := tgLoadContacts(tg)
 			if err != nil {
 				return merry.Wrap(err)
@@ -306,7 +302,7 @@ func dump() error {
 		}
 
 		// save sessions
-		if config.DoSessionsDump {
+		if config.DoSessionsDump == "write" {
 			sessions, err := tgLoadAuths(tg)
 			if err != nil {
 				return merry.Wrap(err)

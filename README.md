@@ -1,4 +1,4 @@
-# Telegram History Dumber
+# Telegram History Dumper
 
 [中文](./README_zh.md)
 
@@ -60,9 +60,9 @@ Format:
         {"type": "user"},
         {"username": "my_channel"}
     ],
-    "dump_account": false,
-    "dump_contacts": false,
-    "dump_sessions": false
+    "dump_account": "off",
+    "dump_contacts": "off",
+    "dump_sessions": "off"
 }
 ```
 
@@ -73,10 +73,9 @@ Format:
 * `out_dir_path` — (optional, default is `history`) folder for saved messages and media;
 * `history` — (optional, default is `{"type": "user"}`) chat filtering [rules](#rules);
 * `media` — (optional, default is `"none"`) chat media filtering [rules](#rules), only applies to chats matched to `history` rules.
-
-* `dump_account` — (optional, default is `"false"`) dumps basic account information to file, does not apply when `-list-chats` enabled.
-* `dump_contacts` — (optional, default is `"false"`) dumps contacts information to file, does not apply when `-list-chats` enabled.
-* `dump_sessions` — (optional, default is `"false"`) dumps active sessions to file, does not apply when `-list-chats` enabled.
+* `dump_account` — (optional, default is `"off"`, use `"write"` to enable dump) dumps basic account information to file, overrides config.dump_account, does not apply when `-list-chats` enabled.
+* `dump_contacts` — (optional, default is `"off"`, use `"write"` to enable dump) dumps contacts information to file, overrides config.dump_contacts, does not apply when `-list-chats` enabled.
+* `dump_sessions` — (optional, default is `"off"`, use `"write"` to enable dump) dumps active sessions to file, overrides config.dump_sessions, does not apply when `-list-chats` enabled.
 
 If config has non-empty `app_id` and `app_hash`, dump may be updated just with `tg_history_dumper` (without arguments).
 
@@ -213,11 +212,11 @@ Usage of tg_history_dumper:
   -debug-tg
         show debug TGClient log messages
   -dump-account string
-        enable basic user information dump
+        enable basic user information dump, use 'write' to enable dump, overriders config.dump_account
   -dump-contacts string
-        enable contacts dump
+        enable contacts dump, use 'write' to enable dump, overriders config.dump_contacts
   -dump-sessions string
-        enable active sessions dump
+        enable active sessions dump, use 'write' to enable dump, overriders config.dump_sessions
   -list-chats
         list all available chats
   -out string
