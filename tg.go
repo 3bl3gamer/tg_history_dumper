@@ -12,6 +12,7 @@ import (
 	"github.com/3bl3gamer/tgclient"
 	"github.com/3bl3gamer/tgclient/mtproto"
 	"github.com/ansel1/merry"
+	"github.com/fatih/color"
 	"golang.org/x/net/proxy"
 )
 
@@ -102,7 +103,9 @@ func tgConnect(config *Config, logHandler *LogHandler) (*tgclient.TGClient, *mtp
 	}
 	me := users[0].(mtproto.TL_user)
 
-	log.Info("logged in as \033[32;1m%s (%s)\033[0m #%d", strings.TrimSpace(me.FirstName+" "+me.LastName), me.Username, me.ID)
+	greenBoldf := color.New(color.FgGreen, color.Bold).SprintfFunc()
+	log.Info("logged in as %s #%d",
+		greenBoldf("%s (%s)", strings.TrimSpace(me.FirstName+" "+me.LastName), me.Username), me.ID)
 	return tg, &me, nil
 }
 

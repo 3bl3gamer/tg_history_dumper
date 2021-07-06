@@ -10,10 +10,11 @@ import (
 	"github.com/3bl3gamer/tgclient"
 	"github.com/3bl3gamer/tgclient/mtproto"
 	"github.com/ansel1/merry"
+	"github.com/fatih/color"
 )
 
 type LogHandler struct {
-	mtproto.SimpleLogHandler
+	mtproto.ColorLogHandler
 	ConsoleMaxLevel mtproto.LogLevel
 	ErrorFileLoger  *stdlog.Logger
 	DebugFileLoger  *stdlog.Logger
@@ -85,6 +86,8 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 	startID := lastID
 	limit := int32(100)
 
+	greenf := color.New(color.FgGreen).SprintfFunc()
+
 	prevIterTime := time.Now()
 	for {
 		if lastID >= chat.LastMessageID {
@@ -92,8 +95,8 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 		}
 
 		percent := (lastID - startID) * 100 / (chat.LastMessageID - startID)
-		log.Info("loading messages: \033[32m%d%%\033[0m from #%d (+%d) until #%d",
-			percent, lastID, limit, chat.LastMessageID)
+		log.Info("loading messages: %s from #%d (+%d) until #%d (~%d left)",
+			greenf("%d%%", percent), lastID, limit, chat.LastMessageID, chat.LastMessageID-lastID)
 
 		allMessages, users, chats, err := tgLoadMessages(tg, chat.Obj, limit, lastID)
 		if err != nil {
@@ -179,7 +182,7 @@ func dump() error {
 		ConsoleMaxLevel: mtproto.INFO,
 		DebugFileLoger:  stdlog.New(mustOpen(filepath.Join(executableDir, "debug.log")), "", stdlog.LstdFlags),
 		ErrorFileLoger:  stdlog.New(mustOpen(filepath.Join(executableDir, "error.log")), "", stdlog.LstdFlags),
-		ConsoleLogger:   stdlog.New(os.Stderr, "", stdlog.LstdFlags),
+		ConsoleLogger:   stdlog.New(color.Error, "", stdlog.LstdFlags),
 	}
 	tgLogHandler := commonLogHandler
 	if *logDebug {
@@ -273,15 +276,20 @@ func dump() error {
 
 	// processing chats
 	if *doListChats {
+		green := color.New(color.FgGreen).SprintFunc()
+		grayf := color.New(color.FgHiBlack).SprintfFunc()
+		noopf := color.New().SprintfFunc()
 		for _, chat := range chats {
-			format := "%-7s %10d \033[32m%s\033[0m (%s)"
-			if config.History.Match(chat, nil) != MatchTrue {
-				format = "\033[90m%-7s %10d %s (%s)\033[0m"
+			colf := noopf
+			title := chat.Title
+			if config.History.Match(chat, nil) == MatchTrue {
+				title = green(title)
+			} else {
+				colf = grayf
 			}
-			log.Info(format, chat.Type, chat.ID, chat.Title, chat.Username)
+			log.Info(colf("%-7s %10d %s (%s)", chat.Type, chat.ID, title, chat.Username))
 		}
 	} else {
-
 		// save user info
 		if me != nil && config.DoAccountDump == "write" {
 			saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
@@ -316,10 +324,11 @@ func dump() error {
 		if err := saveChatsAsRelated(chats, saver); err != nil {
 			return merry.Wrap(err)
 		}
+		green := color.New(color.FgGreen).SprintFunc()
 		for _, chat := range chats {
 			if config.History.Match(chat, nil) == MatchTrue {
-				log.Info("saving messages from: \033[32m%s\033[0m (%s) #%d %v",
-					chat.Title, chat.Username, chat.ID, chat.Type)
+				log.Info("saving messages from: %s (%s) #%d %v",
+					green(chat.Title), chat.Username, chat.ID, chat.Type)
 				if err := loadAndSaveMessages(tg, chat, saver, config); err != nil {
 					return merry.Wrap(err)
 				}
