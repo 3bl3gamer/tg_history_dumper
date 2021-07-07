@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
-	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -50,27 +50,46 @@ func fnameIDPrefix(id int64) string {
 }
 
 func escapeNameForFS(name string) string {
-	name = strings.Replace(name, "/", "_", -1)
-	name = strings.Replace(name, ":", "_", -1) //TODO: is it enough?
+	chars := `/:` //TODO: is it enough?
+	if runtime.GOOS == "windows" {
+		chars += `\<>:"|*?`
+	}
+	for _, c := range chars {
+		name = strings.Replace(name, string(c), "_", -1)
+	}
 	return name
 }
 
 func findFPathForID(dirpath string, id int64, defaultName string) (string, error) {
-	basePath := dirpath + "/" + fnameIDPrefix(id)
-	pattern := basePath + "*"
-	matches, err := filepath.Glob(pattern)
+	fnamePrefix := fnameIDPrefix(id)
+	correctFPath := dirpath + "/" + fnamePrefix + escapeNameForFS(defaultName)
+
+	entries, err := os.ReadDir(dirpath)
+	if os.IsNotExist(err) {
+		return correctFPath, nil
+	}
 	if err != nil {
 		return "", merry.Wrap(err)
 	}
-	correctFPath := basePath + escapeNameForFS(defaultName)
-	if len(matches) == 0 {
+	var matchedFNames []string
+	for _, entry := range entries {
+		fname := entry.Name()
+		if strings.HasPrefix(fname, fnamePrefix) {
+			matchedFNames = append(matchedFNames, fname)
+		}
+	}
+
+	if len(matchedFNames) == 0 {
 		return correctFPath, nil
 	}
-	curFPath := matches[0]
-	if len(matches) > 1 {
-		log.Warn("found multiple files for pattern %s, using %s, ignoring others",
-			pattern, correctFPath)
+
+	curFPath := dirpath + "/" + matchedFNames[0]
+	if len(matchedFNames) > 1 {
+		return "", merry.Errorf(
+			"found multiple files with prefix %s in %s/, there must be only one: %s",
+			fnamePrefix, dirpath, strings.Join(matchedFNames, ", "))
 	}
+
 	if curFPath != correctFPath {
 		log.Info("renaming %s -> %s", curFPath, correctFPath)
 		if err := os.Rename(curFPath, correctFPath); err != nil {
