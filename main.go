@@ -248,9 +248,10 @@ func dump() error {
 	}
 
 	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
-	saver.SetFileRequestCallback(func(chat *Chat, file *TGFileInfo, fpath string) error {
+	saver.SetFileRequestCallback(func(chat *Chat, file *TGFileInfo, msgID int32) error {
 		var err error
 		if config.Media.Match(chat, file) == MatchTrue {
+			fpath, err := saver.MessageFileFPath(chat, msgID, file.FName)
 			_, err = os.Stat(fpath)
 			if os.IsNotExist(err) {
 				log.Info("downloading file to %s", fpath)
@@ -261,7 +262,7 @@ func dump() error {
 				}
 			}
 		} else {
-			log.Debug("skipping file %s", fpath)
+			log.Debug("skipping file '%s' of message #%d", file.FName, msgID)
 		}
 		return merry.Wrap(err)
 	})
@@ -291,7 +292,7 @@ func dump() error {
 		}
 	} else {
 		// save user info
-		if me != nil && config.DoAccountDump == "write" {
+		if config.DoAccountDump == "write" {
 			saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
 			saver.SaveAccount(*me)
 			log.Info("User Account Info Saved")

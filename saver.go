@@ -43,7 +43,7 @@ func (c *ChatData) Equals(other *ChatData) bool {
 	return c.Username == other.Username && c.Title == other.Title
 }
 
-type SaveFileCallbackFunc func(*Chat, *TGFileInfo, string) error
+type SaveFileCallbackFunc func(*Chat, *TGFileInfo, int32) error
 
 func fnameIDPrefix(id int64) string {
 	return strconv.FormatInt(id, 10) + "_"
@@ -138,7 +138,7 @@ func (s JSONFilesHistorySaver) accountFPath() string {
 	return s.Dirpath + "/account"
 }
 
-func (s JSONFilesHistorySaver) filePath(chat *Chat, msgID int32, fname string) (string, error) {
+func (s JSONFilesHistorySaver) MessageFileFPath(chat *Chat, msgID int32, fname string) (string, error) {
 	dirPath, err := findFPathForID(s.Dirpath+"/files", int64(chat.ID), chat.Title)
 	if err != nil {
 		return "", merry.Wrap(err)
@@ -443,11 +443,7 @@ func (s JSONFilesHistorySaver) SaveMessages(chat *Chat, messages []mtproto.TL) e
 		if s.requestFileFunc != nil {
 			fileInfo := tgGetMessageMediaFileInfo(msg)
 			if fileInfo != nil {
-				fpath, err := s.filePath(chat, msgMap["ID"].(int32), fileInfo.FName)
-				if err != nil {
-					return merry.Wrap(err)
-				}
-				if err := s.requestFileFunc(chat, fileInfo, fpath); err != nil {
+				if err := s.requestFileFunc(chat, fileInfo, msgMap["ID"].(int32)); err != nil {
 					return merry.Wrap(err)
 				}
 			}
