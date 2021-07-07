@@ -350,7 +350,7 @@ func (s JSONFilesHistorySaver) SaveContacts(contacts []mtproto.TL) error {
 	encoder := json.NewEncoder(file)
 
 	var contactsMap []interface{}
-	for i := len(contacts) - 1; i >= 0; i-- {
+	for i := 0; i < len(contacts); i++ {
 		contactMap := tgObjToMap(contacts[i])
 		contactMap["_TL_LAYER"] = mtproto.TL_Layer
 		contactsMap = append(contactsMap, contactMap)
@@ -373,7 +373,7 @@ func (s JSONFilesHistorySaver) SaveAuths(auths []mtproto.TL) error {
 	encoder := json.NewEncoder(file)
 
 	var authsMap []interface{}
-	for i := len(auths) - 1; i >= 0; i-- {
+	for i := 0; i < len(auths); i++ {
 		authMap := tgObjToMap(auths[i])
 		authMap["_TL_LAYER"] = mtproto.TL_Layer
 		authsMap = append(authsMap, authMap)
