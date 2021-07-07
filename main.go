@@ -167,6 +167,9 @@ func dump() error {
 	doListChats := flag.Bool("list-chats", false, "list all available chats")
 	logDebug := flag.Bool("debug", false, "show debug log messages")
 	tgLogDebug := flag.Bool("debug-tg", false, "show debug TGClient log messages")
+	doAccountDump := flag.String("dump-account", "", "enable basic user information dump, use 'write' to enable dump, overriders config.dump_account")
+	doContactsDump := flag.String("dump-contacts", "", "enable contacts dump, use 'write' to enable dump, overriders config.dump_contacts")
+	doSessionsDump := flag.String("dump-sessions", "", "enable active sessions dump, use 'write' to enable dump, overriders config.dump_sessions")
 	flag.Parse()
 
 	// logging
@@ -219,6 +222,15 @@ func dump() error {
 	if *outDirPath != "" {
 		config.OutDirPath = *outDirPath
 	}
+	if *doAccountDump != "" {
+		config.DoAccountDump = *doAccountDump
+	}
+	if *doContactsDump != "" {
+		config.DoContactsDump = *doContactsDump
+	}
+	if *doSessionsDump != "" {
+		config.DoSessionsDump = *doSessionsDump
+	}
 
 	if config.AppID == 0 || config.AppHash == "" {
 		println("app_id and app_hash are required (in config or flags)")
@@ -227,7 +239,7 @@ func dump() error {
 	}
 
 	// tg setup
-	tg, err := tgConnect(config, &tgLogHandler)
+	tg, me, err := tgConnect(config, &tgLogHandler)
 	if err != nil {
 		return merry.Wrap(err)
 	}
@@ -269,6 +281,38 @@ func dump() error {
 			log.Info(format, chat.Type, chat.ID, chat.Title, chat.Username)
 		}
 	} else {
+
+		// save user info
+		if me != nil && config.DoAccountDump == "write" {
+			saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
+			saver.SaveAccount(*me)
+			log.Info("User Account Info Saved")
+		}
+
+		// save contacts
+		if config.DoContactsDump == "write" {
+			contacts, err := tgLoadContacts(tg)
+			if err != nil {
+				return merry.Wrap(err)
+			}
+
+			contactsList := contacts.(mtproto.TL_contacts_contacts)
+			saver.SaveContacts(contactsList.Users)
+			log.Info("Contacts Saved")
+		}
+
+		// save sessions
+		if config.DoSessionsDump == "write" {
+			sessions, err := tgLoadAuths(tg)
+			if err != nil {
+				return merry.Wrap(err)
+			}
+
+			AuthList := sessions.(mtproto.TL_account_authorizations)
+			saver.SaveAuths(AuthList.Authorizations)
+			log.Info("Active Sessions Saved")
+		}
+
 		if err := saveChatsAsRelated(chats, saver); err != nil {
 			return merry.Wrap(err)
 		}

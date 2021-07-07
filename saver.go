@@ -107,6 +107,18 @@ func (s JSONFilesHistorySaver) chatsFPath() string {
 	return s.Dirpath + "/chats"
 }
 
+func (s JSONFilesHistorySaver) contactsFPath() string {
+	return s.Dirpath + "/contacts"
+}
+
+func (s JSONFilesHistorySaver) authsFPath() string {
+	return s.Dirpath + "/auths"
+}
+
+func (s JSONFilesHistorySaver) accountFPath() string {
+	return s.Dirpath + "/account"
+}
+
 func (s JSONFilesHistorySaver) filePath(chat *Chat, msgID int32, fname string) (string, error) {
 	dirPath, err := findFPathForID(s.Dirpath+"/files", int64(chat.ID), chat.Title)
 	if err != nil {
@@ -128,6 +140,17 @@ func (s JSONFilesHistorySaver) openForAppend(fpath string) (*os.File, error) {
 		return nil, merry.Wrap(err)
 	}
 	file, err := os.OpenFile(fpath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return nil, merry.Wrap(err)
+	}
+	return file, nil
+}
+
+func (s JSONFilesHistorySaver) openAndTruncate(fpath string) (*os.File, error) {
+	if err := s.makeBaseDir(); err != nil {
+		return nil, merry.Wrap(err)
+	}
+	file, err := os.OpenFile(fpath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
 		return nil, merry.Wrap(err)
 	}
@@ -314,6 +337,71 @@ func (s JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
 			s.chatsData[newChat.ID] = newChat
 		}
 	}
+	return nil
+}
+
+func (s JSONFilesHistorySaver) SaveContacts(contacts []mtproto.TL) error {
+
+	file, err := s.openAndTruncate(s.contactsFPath())
+	if err != nil {
+		return merry.Wrap(err)
+	}
+	defer file.Close()
+	encoder := json.NewEncoder(file)
+
+	var contactsMap []interface{}
+	for i := 0; i < len(contacts); i++ {
+		contactMap := tgObjToMap(contacts[i])
+		contactMap["_TL_LAYER"] = mtproto.TL_Layer
+		contactsMap = append(contactsMap, contactMap)
+	}
+
+	if err := encoder.Encode(contactsMap); err != nil {
+		return merry.Wrap(err)
+	}
+
+	return nil
+}
+
+func (s JSONFilesHistorySaver) SaveAuths(auths []mtproto.TL) error {
+
+	file, err := s.openAndTruncate(s.authsFPath())
+	if err != nil {
+		return merry.Wrap(err)
+	}
+	defer file.Close()
+	encoder := json.NewEncoder(file)
+
+	var authsMap []interface{}
+	for i := 0; i < len(auths); i++ {
+		authMap := tgObjToMap(auths[i])
+		authMap["_TL_LAYER"] = mtproto.TL_Layer
+		authsMap = append(authsMap, authMap)
+	}
+
+	if err := encoder.Encode(authsMap); err != nil {
+		return merry.Wrap(err)
+	}
+
+	return nil
+}
+
+func (s JSONFilesHistorySaver) SaveAccount(me mtproto.TL_user) error {
+
+	file, err := s.openAndTruncate(s.accountFPath())
+	if err != nil {
+		return merry.Wrap(err)
+	}
+	defer file.Close()
+	encoder := json.NewEncoder(file)
+
+	accMap := tgObjToMap(me)
+	accMap["_TL_LAYER"] = mtproto.TL_Layer
+
+	if err := encoder.Encode(accMap); err != nil {
+		return merry.Wrap(err)
+	}
+
 	return nil
 }
 
