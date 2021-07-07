@@ -18,7 +18,6 @@ tg_history_dumper [args]
 ```
 
 或者
-
 ```
 git clone https://github.com/3bl3gamer/tg-history-dumper
 cd tg-history-dumper
@@ -62,6 +61,9 @@ go build
         {"type": "user"},
         {"username": "my_channel"}
     ],
+    "dump_account": "off",
+    "dump_contacts": "off",
+    "dump_sessions": "off"
 }
 ```
 
@@ -72,6 +74,9 @@ go build
 * `out_dir_path` — (可选, 默认 `history`) 存储历史消息和媒体文件的文件夹。
 * `history` — (可选, 默认 `{"type": "user"}`) 聊天过滤[规则](#规则)。
 * `media` — (可选, 默认 `"none"`) 聊天过滤[规则](#规则)，仅在符合`history`规则的聊天中生效。
+* `dump_account` — (optional, default is `"off"`, use `"write"` to enable dump) dumps basic account information to file, overrides config.dump_account, does not apply when `-list-chats` enabled.
+* `dump_contacts` — (optional, default is `"off"`, use `"write"` to enable dump) dumps contacts information to file, overrides config.dump_contacts, does not apply when `-list-chats` enabled.
+* `dump_sessions` — (optional, default is `"off"`, use `"write"` to enable dump) dumps active sessions to file, overrides config.dump_sessions, does not apply when `-list-chats` enabled.
 
 如果配置中有了 `app_id` 和 `app_hash`，那么此工具就不会使用命令行参数中的那个了，你也没必要在命令行参数中再附带这两个参数。
 
@@ -217,6 +222,12 @@ Usage of tg_history_dumper:
       展示 debug 相关的日志信息。
   -debug-tg
       展示 debug TGClient 的日志信息。
+  -dump-account string
+        enable basic user information dump, use 'write' to enable dump, overriders config.dump_account
+  -dump-contacts string
+        enable contacts dump, use 'write' to enable dump, overriders config.dump_contacts
+  -dump-sessions string
+        enable active sessions dump, use 'write' to enable dump, overriders config.dump_sessions
   -list-chats
       列出来所有可用的聊天
   -out string

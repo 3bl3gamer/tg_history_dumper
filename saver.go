@@ -349,7 +349,14 @@ func (s JSONFilesHistorySaver) SaveContacts(contacts []mtproto.TL) error {
 	defer file.Close()
 	encoder := json.NewEncoder(file)
 
-	if err := encoder.Encode(contacts); err != nil {
+	var contactsMap []interface{}
+	for i := len(contacts) - 1; i >= 0; i-- {
+		contactMap := tgObjToMap(contacts[i])
+		contactMap["_TL_LAYER"] = mtproto.TL_Layer
+		contactsMap = append(contactsMap, contactMap)
+	}
+
+	if err := encoder.Encode(contactsMap); err != nil {
 		return merry.Wrap(err)
 	}
 
@@ -365,7 +372,14 @@ func (s JSONFilesHistorySaver) SaveAuths(auths []mtproto.TL) error {
 	defer file.Close()
 	encoder := json.NewEncoder(file)
 
-	if err := encoder.Encode(auths); err != nil {
+	var authsMap []interface{}
+	for i := len(auths) - 1; i >= 0; i-- {
+		authMap := tgObjToMap(auths[i])
+		authMap["_TL_LAYER"] = mtproto.TL_Layer
+		authsMap = append(authsMap, authMap)
+	}
+
+	if err := encoder.Encode(authsMap); err != nil {
 		return merry.Wrap(err)
 	}
 
@@ -381,7 +395,10 @@ func (s JSONFilesHistorySaver) SaveAccount(me mtproto.TL_user) error {
 	defer file.Close()
 	encoder := json.NewEncoder(file)
 
-	if err := encoder.Encode(me); err != nil {
+	accMap := tgObjToMap(me)
+	accMap["_TL_LAYER"] = mtproto.TL_Layer
+
+	if err := encoder.Encode(accMap); err != nil {
 		return merry.Wrap(err)
 	}
 
