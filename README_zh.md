@@ -74,12 +74,30 @@ go build
 * `out_dir_path` — (可选, 默认 `history`) 存储历史消息和媒体文件的文件夹。
 * `history` — (可选, 默认 `{"type": "user"}`) 聊天过滤[规则](#规则)。
 * `media` — (可选, 默认 `"none"`) 聊天过滤[规则](#规则)，仅在符合`history`规则的聊天中生效。
-* `dump_account` — (optional, default is `"off"`, use `"write"` to enable dump) dumps basic account information to file, overrides config.dump_account, does not apply when `-list-chats` enabled.
-* `dump_contacts` — (optional, default is `"off"`, use `"write"` to enable dump) dumps contacts information to file, overrides config.dump_contacts, does not apply when `-list-chats` enabled.
+* `history_limit` — (optional, default is `{}`) new chat [history limiting](#history-limits) rules;
+* `dump_account` — (optional, default is `"off"`, use `"write"` to enable dump) dumps basic account information to file, overrides config.dump_account, does not apply when `-list-chats` enabled;
+* `dump_contacts` — (optional, default is `"off"`, use `"write"` to enable dump) dumps contacts information to file, overrides config.dump_contacts, does not apply when `-list-chats` enabled;
 * `dump_sessions` — (optional, default is `"off"`, use `"write"` to enable dump) dumps active sessions to file, overrides config.dump_sessions, does not apply when `-list-chats` enabled.
 
 如果配置中有了 `app_id` 和 `app_hash`，那么此工具就不会使用命令行参数中的那个了，你也没必要在命令行参数中再附带这两个参数。
 
+
+### History limits
+
+Limits define how many messages will be dumped for chats for the first time.
+They are configured as limit_count:[rules](#rules).
+If chat matches more than one rule, the lower limit is applied.
+If chat does not match any rules, all messages are dumped.
+If there are already some messages from previous dump for the chat, its limits are ignored.
+
+For example, this config sets limit to 5000 for groups, 10000 for channels, dialogs remain unlimited:
+
+```json
+"history_limit": {
+    "5000": {"type": "group"},
+    "10000": {"type": "channel"}
+}
+```
 
 
 ### 规则

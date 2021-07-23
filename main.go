@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	stdlog "log"
 	"os"
 	"path/filepath"
@@ -84,7 +85,13 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 		return merry.Wrap(err)
 	}
 	startID := lastID
-	limit := int32(100)
+	chunkSize := int32(100)
+
+	historyLimit := int32(0)
+	// applying limit only if no history has been dumped for this chat yet
+	if startID == 0 {
+		historyLimit = config.HistoryLimit.For(chat)
+	}
 
 	greenf := color.New(color.FgGreen).SprintfFunc()
 
@@ -94,14 +101,26 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 			break
 		}
 
-		percent := (lastID - startID) * 100 / (chat.LastMessageID - startID)
-		log.Info("loading messages: %s from #%d (+%d) until #%d (~%d left)",
-			greenf("%d%%", percent), lastID, limit, chat.LastMessageID, chat.LastMessageID-lastID)
+		{
+			percent := (lastID - startID) * 100 / (chat.LastMessageID - startID)
+			approxRemCount := chat.LastMessageID - lastID
+			fromNum := lastID
+			if historyLimit > 0 {
+				approxRemCount = historyLimit
+				fromNum = -historyLimit
+			}
+			log.Info("loading messages: %s from #%d (+%d) until #%d (~%d left)",
+				greenf("%d%%", percent), fromNum, chunkSize, chat.LastMessageID, approxRemCount)
+		}
 
-		allMessages, users, chats, err := tgLoadMessages(tg, chat.Obj, limit, lastID)
+		allMessages, users, chats, err := tgLoadMessages(tg, chat.Obj, chunkSize, lastID, historyLimit)
 		if err != nil {
 			return merry.Wrap(err)
 		}
+		// using limit only once: when it is positive, reference messages chunk will be loaded
+		// (with approximatelly chunk_first_msg_ID = last_msg_ID_in_this_chat - historyLimit)
+		// and subsequent loading will go on as usual (from older messages to newer ones)
+		historyLimit = 0
 
 		if err := saver.SaveRelatedUsers(users); err != nil {
 			return merry.Wrap(err)
@@ -120,9 +139,9 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 			newMessages = append(newMessages, msg)
 			if msgID > lastID {
 				lastID = msgID
-				if startID == 0 {
-					startID = lastID
-				}
+			}
+			if msgID < startID || startID == 0 {
+				startID = msgID
 			}
 		}
 		log.Debug("got %d new message(s)", len(newMessages))
@@ -131,11 +150,12 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 			return merry.Wrap(err)
 		}
 
-		if len(newMessages) < int(limit) && lastID < chat.LastMessageID {
+		if len(newMessages) < int(chunkSize) && lastID < chat.LastMessageID {
 			log.Warn(
 				"go %d message(s) (instead of %d), but their last ID=%d is still less than chat last message ID=%d; "+
 					"maybe someone has removed last message(s) while we were dumping; stopping with this chat for now.",
-				len(newMessages), limit, lastID, chat.LastMessageID)
+				len(newMessages), chunkSize, lastID, chat.LastMessageID)
+			break
 		}
 
 		now := time.Now()
@@ -278,17 +298,24 @@ func dump() error {
 	// processing chats
 	if *doListChats {
 		green := color.New(color.FgGreen).SprintFunc()
+		yellow := color.New(color.FgYellow).SprintFunc()
 		grayf := color.New(color.FgHiBlack).SprintfFunc()
 		noopf := color.New().SprintfFunc()
+		log.Info(grayf(" type     chat ID    limit  title (username)"))
 		for _, chat := range chats {
 			colf := noopf
 			title := chat.Title
+			historyLimitStr := "       "
+			if historyLimit := config.HistoryLimit.For(chat); historyLimit != 0 {
+				historyLimitStr = fmt.Sprintf("%7d", historyLimit)
+			}
 			if config.History.Match(chat, nil) == MatchTrue {
 				title = green(title)
+				historyLimitStr = yellow(historyLimitStr)
 			} else {
 				colf = grayf
 			}
-			log.Info(colf("%-7s %10d %s (%s)", chat.Type, chat.ID, title, chat.Username))
+			log.Info(colf("%-7s %10d %s  %s (%s)", chat.Type, chat.ID, historyLimitStr, title, chat.Username))
 		}
 	} else {
 		// save user info

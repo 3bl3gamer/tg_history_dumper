@@ -24,6 +24,7 @@ type Config struct {
 	AppID             int32
 	AppHash           string
 	History           ConfigChatFilter
+	HistoryLimit      ConfigChatHistoryLimit
 	Media             ConfigChatFilter
 	Socks5ProxyAddr   string
 	RequestIntervalMS int64
@@ -178,18 +179,33 @@ func (f ConfigChatFilterAttrs) String() string {
 	return string(buf)
 }
 
+type ConfigChatHistoryLimit map[int32]ConfigChatFilter
+
+func (l ConfigChatHistoryLimit) For(chat *Chat) int32 {
+	minLimit := int32(0)
+	for limit, filter := range l {
+		if minLimit == 0 || limit < minLimit {
+			if filter.Match(chat, nil) == MatchTrue {
+				minLimit = limit
+			}
+		}
+	}
+	return minLimit
+}
+
 type ConfigRaw struct {
-	AppID             int32           `json:"app_id"`
-	AppHash           string          `json:"app_hash"`
-	History           json.RawMessage `json:"history"`
-	Media             json.RawMessage `json:"media"`
-	Socks5ProxyAddr   string          `json:"socks5_proxy_addr"`
-	RequestIntervalMS int64           `json:"request_interval_ms"`
-	SessionFilePath   string          `json:"session_file_path"`
-	OutDirPath        string          `json:"out_dir_path"`
-	DoAccountDump     string          `json:"dump_account"`
-	DoContactsDump    string          `json:"dump_contacts"`
-	DoSessionsDump    string          `json:"dump_sessions"`
+	AppID             int32                     `json:"app_id"`
+	AppHash           string                    `json:"app_hash"`
+	History           json.RawMessage           `json:"history"`
+	HistoryLimit      map[int32]json.RawMessage `json:"history_limit"`
+	Media             json.RawMessage           `json:"media"`
+	Socks5ProxyAddr   string                    `json:"socks5_proxy_addr"`
+	RequestIntervalMS int64                     `json:"request_interval_ms"`
+	SessionFilePath   string                    `json:"session_file_path"`
+	OutDirPath        string                    `json:"out_dir_path"`
+	DoAccountDump     string                    `json:"dump_account"`
+	DoContactsDump    string                    `json:"dump_contacts"`
+	DoSessionsDump    string                    `json:"dump_sessions"`
 }
 
 var silentParseTestMode = false
@@ -211,43 +227,35 @@ func ParseConfig(fpath string) (*Config, error) {
 		return nil, merry.Wrap(err)
 	}
 
-	cfg := &Config{
-		AppID:           raw.AppID,
-		AppHash:         raw.AppHash,
-		Socks5ProxyAddr: raw.Socks5ProxyAddr,
-	}
+	cfg := &(*defaultConfig) //copying default
+	cfg.AppID = raw.AppID
+	cfg.AppHash = raw.AppHash
+	cfg.Socks5ProxyAddr = raw.Socks5ProxyAddr
 
-	cfg.RequestIntervalMS = defaultConfig.RequestIntervalMS
 	if raw.RequestIntervalMS > 0 {
 		cfg.RequestIntervalMS = raw.RequestIntervalMS
 	}
 
-	cfg.SessionFilePath = defaultConfig.SessionFilePath
 	if raw.SessionFilePath != "" {
 		cfg.SessionFilePath = raw.SessionFilePath
 	}
 
-	cfg.OutDirPath = defaultConfig.OutDirPath
 	if raw.OutDirPath != "" {
 		cfg.OutDirPath = raw.OutDirPath
 	}
 
-	cfg.DoAccountDump = defaultConfig.DoAccountDump
 	if raw.DoAccountDump != "" {
 		cfg.DoAccountDump = raw.DoAccountDump
 	}
 
-	cfg.DoContactsDump = defaultConfig.DoContactsDump
 	if raw.DoContactsDump != "" {
 		cfg.DoContactsDump = raw.DoContactsDump
 	}
 
-	cfg.DoSessionsDump = defaultConfig.DoSessionsDump
 	if raw.DoSessionsDump != "" {
 		cfg.DoSessionsDump = raw.DoSessionsDump
 	}
 
-	cfg.History = defaultConfig.History
 	if len(raw.History) > 0 {
 		cfg.History, err = parseConfigFilters(raw.History)
 		if err != nil {
@@ -255,11 +263,20 @@ func ParseConfig(fpath string) (*Config, error) {
 		}
 	}
 
-	cfg.Media = defaultConfig.Media
 	if len(raw.Media) > 0 {
 		cfg.Media, err = parseConfigFilters(raw.Media)
 		if err != nil {
 			return nil, merry.Wrap(err)
+		}
+	}
+
+	if len(raw.HistoryLimit) > 0 {
+		cfg.HistoryLimit = make(map[int32]ConfigChatFilter, len(raw.HistoryLimit))
+		for limit, rawFilter := range raw.HistoryLimit {
+			cfg.HistoryLimit[limit], err = parseConfigFilters(rawFilter)
+			if err != nil {
+				return nil, merry.Wrap(err)
+			}
 		}
 	}
 	return cfg, nil
@@ -367,10 +384,15 @@ func CheckConfig(config *Config, chats []*Chat) {
 		log.Warn("no chats match filter %v", attrs)
 	})
 	TraverseConfigChatFilter(config.History, func(filter ConfigChatFilter) {
-		if attrs, ok := filter.(ConfigChatFilterAttrs); ok {
-			if attrs.MediaMaxSize != nil {
-				log.Warn("'media_max_size' have no effect in 'config.history'")
-			}
+		if attrs, ok := filter.(ConfigChatFilterAttrs); ok && attrs.MediaMaxSize != nil {
+			log.Warn("'media_max_size' have no effect in 'config.history'")
 		}
 	})
+	for _, filter := range config.HistoryLimit {
+		TraverseConfigChatFilter(filter, func(filter ConfigChatFilter) {
+			if attrs, ok := filter.(ConfigChatFilterAttrs); ok && attrs.MediaMaxSize != nil {
+				log.Warn("'media_max_size' have no effect in 'config.history_limit'")
+			}
+		})
+	}
 }

@@ -47,6 +47,9 @@ func TestParseConfig__NoFile(t *testing.T) {
 		RequestIntervalMS: int64(1000),
 		History:           ConfigChatFilterType{Type: ChatUser},
 		Media:             ConfigChatFilterNone{},
+		DoAccountDump:     "off",
+		DoContactsDump:    "off",
+		DoSessionsDump:    "off",
 	})
 }
 
@@ -63,6 +66,9 @@ func TestParseConfig__Empty(t *testing.T) {
 		RequestIntervalMS: int64(1000),
 		History:           ConfigChatFilterType{Type: ChatUser},
 		Media:             ConfigChatFilterNone{},
+		DoAccountDump:     "off",
+		DoContactsDump:    "off",
+		DoSessionsDump:    "off",
 	})
 }
 
@@ -80,7 +86,9 @@ func TestParseConfig__Some(t *testing.T) {
 				{"type": "channel"}
 			]},
 			{"only": {"type": "user"}, "with": {"id": 123}}
-		]
+		],
+		"dump_account": "off",
+		"dump_contacts": "yes"
 	}`)
 	defer removeTestConfig(file)
 	assertOk(t, err)
@@ -109,7 +117,10 @@ func TestParseConfig__Some(t *testing.T) {
 				With: ConfigChatFilterAttrs{ID: &id123},
 			},
 		}},
-		Media: ConfigChatFilterNone{},
+		Media:          ConfigChatFilterNone{},
+		DoAccountDump:  "off",
+		DoContactsDump: "yes",
+		DoSessionsDump: "off",
 	})
 }
 
@@ -157,4 +168,20 @@ func TestConfigChatFilter(t *testing.T) {
 	assertEqual(t, f.Match(&Chat{ID: 123}, &TGFileInfo{Size: 512 * 1024}), MatchTrue)
 	assertEqual(t, f.Match(&Chat{ID: 123}, &TGFileInfo{Size: 512*1024 + 1}), MatchUndefined)
 	assertEqual(t, f.Match(&Chat{ID: 12}, &TGFileInfo{Size: 512 * 1024}), MatchUndefined)
+}
+
+func Test_ConfigChatHistoryLimit_For(t *testing.T) {
+	id1 := int32(1)
+	id2 := int32(2)
+
+	var l ConfigChatHistoryLimit = map[int32]ConfigChatFilter{
+		1000: ConfigChatFilterAttrs{ID: &id1},
+		2000: ConfigChatFilterMulti{[]ConfigChatFilter{
+			ConfigChatFilterAttrs{ID: &id1},
+			ConfigChatFilterAttrs{ID: &id2},
+		}},
+	}
+	assertEqual(t, l.For(&Chat{ID: 1}), int32(1000))
+	assertEqual(t, l.For(&Chat{ID: 2}), int32(2000))
+	assertEqual(t, l.For(&Chat{ID: 3}), int32(0))
 }

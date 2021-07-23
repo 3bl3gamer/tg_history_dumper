@@ -60,6 +60,12 @@ Format:
         {"type": "user"},
         {"username": "my_channel"}
     ],
+    "history_limit": {
+        "5000": [
+            "all",
+            {"exclude": {"type": "user"}}
+        ]
+    },
     "dump_account": "off",
     "dump_contacts": "off",
     "dump_sessions": "off"
@@ -72,12 +78,30 @@ Format:
 * `session_file_path` — (optional, default is `tg.session`) session file location (you will not have to login next time if it is present);
 * `out_dir_path` — (optional, default is `history`) folder for saved messages and media;
 * `history` — (optional, default is `{"type": "user"}`) chat filtering [rules](#rules);
-* `media` — (optional, default is `"none"`) chat media filtering [rules](#rules), only applies to chats matched to `history` rules.
-* `dump_account` — (optional, default is `"off"`, use `"write"` to enable dump) dumps basic account information to file, overrides config.dump_account, does not apply when `-list-chats` enabled.
-* `dump_contacts` — (optional, default is `"off"`, use `"write"` to enable dump) dumps contacts information to file, overrides config.dump_contacts, does not apply when `-list-chats` enabled.
+* `media` — (optional, default is `"none"`) chat media filtering [rules](#rules), only applies to chats matched to `history` rules;
+* `history_limit` — (optional, default is `{}`) new chat [history limiting](#history-limits) rules;
+* `dump_account` — (optional, default is `"off"`, use `"write"` to enable dump) dumps basic account information to file, overrides config.dump_account, does not apply when `-list-chats` enabled;
+* `dump_contacts` — (optional, default is `"off"`, use `"write"` to enable dump) dumps contacts information to file, overrides config.dump_contacts, does not apply when `-list-chats` enabled;
 * `dump_sessions` — (optional, default is `"off"`, use `"write"` to enable dump) dumps active sessions to file, overrides config.dump_sessions, does not apply when `-list-chats` enabled.
 
 If config has non-empty `app_id` and `app_hash`, dump may be updated just with `tg_history_dumper` (without arguments).
+
+### History limits
+
+Limits define how many messages will be dumped for chats for the first time.
+They are configured as limit_count:[rules](#rules).
+If chat matches more than one rule, the lower limit is applied.
+If chat does not match any rules, all messages are dumped.
+If there are already some messages from previous dump for the chat, its limits are ignored.
+
+For example, this config sets limit to 5000 for groups, 10000 for channels, dialogs remain unlimited:
+
+```json
+"history_limit": {
+    "5000": {"type": "group"},
+    "10000": {"type": "channel"}
+}
+```
 
 ### Rules
 
@@ -186,7 +210,7 @@ Matches nothing.
 
 `tg_history_dumper -list-chats`
 
-Outputs chats in format `<type> <id> <title> (<username>)`.
+Outputs chats in format `<type> <id> <limit> <title> (<username>)`.
 Title for users is `FirstName LastName`.
 If chat does not match `config.history` rules, the line is grayed out.
 

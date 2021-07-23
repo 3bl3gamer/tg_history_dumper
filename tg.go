@@ -240,8 +240,13 @@ func tgLoadAuths(tg *tgclient.TGClient) (mtproto.TL, error) {
 	return res, nil
 }
 
+// Works in two modes:
+// 1) when recentOffset <= 0:
+//    requests `limit` messages newer than `lastMsgID`
+// 2) when recentOffset > 0:
+//    requests `limit` oldest messages of `recentOffset` most recent messages
 func tgLoadMessages(
-	tg *tgclient.TGClient, peerTL mtproto.TL, limit, lastMsgID int32,
+	tg *tgclient.TGClient, peerTL mtproto.TL, limit, lastMsgID, recentOffset int32,
 ) ([]mtproto.TL, []mtproto.TL, []mtproto.TL, error) {
 	var inputPeer mtproto.TL
 	switch peer := peerTL.(type) {
@@ -255,12 +260,17 @@ func tgLoadMessages(
 		return nil, nil, nil, merry.Wrap(mtproto.WrongRespError(peerTL))
 	}
 
-	res := tg.SendSyncRetry(mtproto.TL_messages_getHistory{
-		Peer:      inputPeer,
-		Limit:     limit,
-		OffsetID:  lastMsgID + 1,
-		AddOffset: -limit,
-	}, time.Second, 0, 30*time.Second)
+	params := mtproto.TL_messages_getHistory{
+		Peer:  inputPeer,
+		Limit: limit,
+	}
+	if recentOffset <= 0 {
+		params.OffsetID = lastMsgID + 1
+		params.AddOffset = -limit
+	} else {
+		params.AddOffset = recentOffset - limit
+	}
+	res := tg.SendSyncRetry(params, time.Second, 0, 30*time.Second)
 
 	switch messages := res.(type) {
 	case mtproto.TL_messages_messages:
