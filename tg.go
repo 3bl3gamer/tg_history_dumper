@@ -80,8 +80,15 @@ func tgConnect(config *Config, logHandler *LogHandler) (*tgclient.TGClient, *mtp
 
 	var dialer proxy.Dialer
 	if config.Socks5ProxyAddr != "" {
+		var auth *proxy.Auth
+		if config.Socks5ProxyUser != "" || config.Socks5ProxyPassword != "" {
+			auth = &proxy.Auth{
+				User:     config.Socks5ProxyUser,
+				Password: config.Socks5ProxyPassword,
+			}
+		}
 		var err error
-		dialer, err = proxy.SOCKS5("tcp", config.Socks5ProxyAddr, nil, proxy.Direct)
+		dialer, err = proxy.SOCKS5("tcp", config.Socks5ProxyAddr, auth, proxy.Direct)
 		if err != nil {
 			return nil, nil, merry.Wrap(err)
 		}

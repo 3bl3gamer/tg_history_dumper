@@ -47,6 +47,8 @@ Format:
     "app_id": 12345,
     "app_hash": "abcdefg",
     "socks5_proxy_addr": "127.0.0.1:9050",
+    "socks5_proxy_user": "hackyhack",
+    "socks5_proxy_password": "passw0rd",
     "request_interval_ms": 1000,
     "session_file_path": "tg.session",
     "out_dir_path": "history",
@@ -74,6 +76,8 @@ Format:
 
 * `app_id` and `app_hash` — see [preparing](#preparing);
 * `socks5_proxy_addr` — (optional) `address:post` of SOCKS5 proxy;
+* `socks5_proxy_user` — (optional) username for SOCKS5 proxy (if auth is required);
+* `socks5_proxy_password` — (optional) password for SOCKS5 proxy (if auth is required);
 * `request_interval_ms` — (optional, default is 1000) interval for requesting history message chunks (may be decreased, though it likely will not speed up the process, since TG has query rate limits);
 * `session_file_path` — (optional, default is `tg.session`) session file location (you will not have to login next time if it is present);
 * `out_dir_path` — (optional, default is `history`) folder for saved messages and media;
@@ -249,6 +253,10 @@ Usage of tg_history_dumper:
         session file path, overrides config.session_file_path
   -socks5 string
         socks5 proxy address:port, overrides config.socks5_proxy_addr
+  -socks5-password string
+        socks5 proxy password, overrides config.socks5_proxy_password
+  -socks5-user string
+        socks5 proxy username, overrides config.socks5_proxy_user
 ```
 
 ## Format

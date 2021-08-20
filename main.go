@@ -184,6 +184,8 @@ func dump() error {
 	appID := flag.Int("app-id", 0, "app id")
 	appHash := flag.String("app-hash", "", "app hash")
 	sosks5addr := flag.String("socks5", "", "socks5 proxy address:port, overrides config.socks5_proxy_addr")
+	sosks5user := flag.String("socks5-user", "", "socks5 proxy username, overrides config.socks5_proxy_user")
+	sosks5password := flag.String("socks5-password", "", "socks5 proxy password, overrides config.socks5_proxy_password")
 	sessionFPath := flag.String("session", "", "session file path, overrides config.session_file_path")
 	outDirPath := flag.String("out", "", "output directory path, overriders config.out_dir_path")
 	chatTitle := flag.String("chat", "", "title of the chat to dump, overrides config.history")
@@ -227,33 +229,26 @@ func dump() error {
 	if err != nil {
 		return merry.Wrap(err)
 	}
+	overrideStrParam := func(cfgAttr, srcValue *string) {
+		if *srcValue != "" {
+			*cfgAttr = *srcValue
+		}
+	}
 	if *appID != 0 {
 		config.AppID = int32(*appID)
 	}
-	if *appHash != "" {
-		config.AppHash = *appHash
-	}
-	if *sosks5addr != "" {
-		config.Socks5ProxyAddr = *sosks5addr
-	}
+	overrideStrParam(&config.AppHash, appHash)
+	overrideStrParam(&config.Socks5ProxyAddr, sosks5addr)
+	overrideStrParam(&config.Socks5ProxyUser, sosks5user)
+	overrideStrParam(&config.Socks5ProxyPassword, sosks5password)
 	if *chatTitle != "" {
 		config.History = ConfigChatFilterAttrs{Title: chatTitle}
 	}
-	if *sessionFPath != "" {
-		config.SessionFilePath = *sessionFPath
-	}
-	if *outDirPath != "" {
-		config.OutDirPath = *outDirPath
-	}
-	if *doAccountDump != "" {
-		config.DoAccountDump = *doAccountDump
-	}
-	if *doContactsDump != "" {
-		config.DoContactsDump = *doContactsDump
-	}
-	if *doSessionsDump != "" {
-		config.DoSessionsDump = *doSessionsDump
-	}
+	overrideStrParam(&config.SessionFilePath, sessionFPath)
+	overrideStrParam(&config.OutDirPath, outDirPath)
+	overrideStrParam(&config.DoAccountDump, doAccountDump)
+	overrideStrParam(&config.DoContactsDump, doContactsDump)
+	overrideStrParam(&config.DoSessionsDump, doSessionsDump)
 
 	if config.AppID == 0 || config.AppHash == "" {
 		println("app_id and app_hash are required (in config or flags)")

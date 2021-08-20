@@ -21,18 +21,20 @@ var defaultConfig = &Config{
 }
 
 type Config struct {
-	AppID             int32
-	AppHash           string
-	History           ConfigChatFilter
-	HistoryLimit      ConfigChatHistoryLimit
-	Media             ConfigChatFilter
-	Socks5ProxyAddr   string
-	RequestIntervalMS int64
-	SessionFilePath   string
-	OutDirPath        string
-	DoAccountDump     string
-	DoContactsDump    string
-	DoSessionsDump    string
+	AppID               int32
+	AppHash             string
+	History             ConfigChatFilter
+	HistoryLimit        ConfigChatHistoryLimit
+	Media               ConfigChatFilter
+	Socks5ProxyAddr     string
+	Socks5ProxyUser     string
+	Socks5ProxyPassword string
+	RequestIntervalMS   int64
+	SessionFilePath     string
+	OutDirPath          string
+	DoAccountDump       string
+	DoContactsDump      string
+	DoSessionsDump      string
 }
 
 type SuffuxedSize int64
@@ -194,18 +196,20 @@ func (l ConfigChatHistoryLimit) For(chat *Chat) int32 {
 }
 
 type ConfigRaw struct {
-	AppID             int32                     `json:"app_id"`
-	AppHash           string                    `json:"app_hash"`
-	History           json.RawMessage           `json:"history"`
-	HistoryLimit      map[int32]json.RawMessage `json:"history_limit"`
-	Media             json.RawMessage           `json:"media"`
-	Socks5ProxyAddr   string                    `json:"socks5_proxy_addr"`
-	RequestIntervalMS int64                     `json:"request_interval_ms"`
-	SessionFilePath   string                    `json:"session_file_path"`
-	OutDirPath        string                    `json:"out_dir_path"`
-	DoAccountDump     string                    `json:"dump_account"`
-	DoContactsDump    string                    `json:"dump_contacts"`
-	DoSessionsDump    string                    `json:"dump_sessions"`
+	AppID               int32                     `json:"app_id"`
+	AppHash             string                    `json:"app_hash"`
+	History             json.RawMessage           `json:"history"`
+	HistoryLimit        map[int32]json.RawMessage `json:"history_limit"`
+	Media               json.RawMessage           `json:"media"`
+	Socks5ProxyAddr     string                    `json:"socks5_proxy_addr"`
+	Socks5ProxyUser     string                    `json:"socks5_proxy_user"`
+	Socks5ProxyPassword string                    `json:"socks5_proxy_password"`
+	RequestIntervalMS   int64                     `json:"request_interval_ms"`
+	SessionFilePath     string                    `json:"session_file_path"`
+	OutDirPath          string                    `json:"out_dir_path"`
+	DoAccountDump       string                    `json:"dump_account"`
+	DoContactsDump      string                    `json:"dump_contacts"`
+	DoSessionsDump      string                    `json:"dump_sessions"`
 }
 
 var silentParseTestMode = false
@@ -231,6 +235,8 @@ func ParseConfig(fpath string) (*Config, error) {
 	cfg.AppID = raw.AppID
 	cfg.AppHash = raw.AppHash
 	cfg.Socks5ProxyAddr = raw.Socks5ProxyAddr
+	cfg.Socks5ProxyUser = raw.Socks5ProxyUser
+	cfg.Socks5ProxyPassword = raw.Socks5ProxyPassword
 
 	if raw.RequestIntervalMS > 0 {
 		cfg.RequestIntervalMS = raw.RequestIntervalMS

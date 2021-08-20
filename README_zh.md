@@ -48,6 +48,8 @@ go build
     "app_id": 12345,
     "app_hash": "abcdefg",
     "socks5_proxy_addr": "127.0.0.1:9050",
+    "socks5_proxy_user": "hackyhack",
+    "socks5_proxy_password": "passw0rd",
     "request_interval_ms": 1000,
     "session_file_path": "tg.session",
     "out_dir_path": "history",
@@ -69,6 +71,8 @@ go build
 
 * `app_id` 和 `app_hash` — 参考 [准备工作](#准备工作);
 * `socks5_proxy_addr` — (可选) `address:post` 对应 SOCKS5 端口;
+* `socks5_proxy_user` — (optional) username for SOCKS5 proxy (if auth is required);
+* `socks5_proxy_password` — (optional) password for SOCKS5 proxy (if auth is required);
 * `request_interval_ms` — (可选, 默认值 1000) 请求历史消息数据的时间间隔（可能会减小，尽管这可能并不会加快处理速度，毕竟 TG 那边对请求频率做了限制。）
 * `session_file_path` — (可选, 默认 `tg.session`) session 文件的位置（这个文件是为了让你下次不必重新登录）
 * `out_dir_path` — (可选, 默认 `history`) 存储历史消息和媒体文件的文件夹。
@@ -254,6 +258,10 @@ Usage of tg_history_dumper:
       session 文件路径，将会覆盖 config.session_file_path
   -socks5 string
       socks5 配置，包括 地址:端口，将会覆盖 config.socks5_proxy_addr
+  -socks5-password string
+        socks5 proxy password, overrides config.socks5_proxy_password
+  -socks5-user string
+        socks5 proxy username, overrides config.socks5_proxy_user
 ```
 
 ## 格式
