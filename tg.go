@@ -240,7 +240,7 @@ func tgLoadContacts(tg *tgclient.TGClient) (mtproto.TL, error) {
 	return res, nil
 }
 
-func tgSaveUserProfilePhotos(tg *tgclient.TGClient, user mtproto.TL_user, profilePicFPath string) (mtproto.TL_photos_photos, error) {
+func tgSaveUserProfilePhotos(tg *tgclient.TGClient, user mtproto.TL_user, profilePicFPath string) {
 
 	inuser := &mtproto.TL_inputUser{
 		UserID: user.ID,
@@ -250,22 +250,24 @@ func tgSaveUserProfilePhotos(tg *tgclient.TGClient, user mtproto.TL_user, profil
 		UserID: inuser,
 	}, time.Second, 0, 30*time.Second)
 
-	photos := resPhotos.(mtproto.TL_photos_photos)
-
-	if len(photos.Photos) == 0 {
-		log.Info("Profile Picture Not Found")
-		return photos, nil
+	switch resPhotos.(type) {
+	case mtproto.TL_photos_photos:
+		photos := resPhotos.(mtproto.TL_photos_photos)
+		for index, photo := range photos.Photos {
+			photo := photo.(mtproto.TL_photo)
+			file := tgGetPhotoFileInfo(photo)
+			tg.DownloadFileToPath(profilePicFPath+"_"+strconv.Itoa(index)+".jpg", file.InputLocation, file.DcID, int64(file.Size), NewFileProgressLogger())
+		}
+	case mtproto.TL_photos_photosSlice: //Downloads first 20 photos if 20+ photos exists
+		photos := resPhotos.(mtproto.TL_photos_photosSlice)
+		for index, photo := range photos.Photos {
+			photo := photo.(mtproto.TL_photo)
+			file := tgGetPhotoFileInfo(photo)
+			tg.DownloadFileToPath(profilePicFPath+"_"+strconv.Itoa(index)+".jpg", file.InputLocation, file.DcID, int64(file.Size), NewFileProgressLogger())
+		}
 	}
-
-	for index, photo := range photos.Photos {
-		photo := photo.(mtproto.TL_photo)
-		file := tgGetPhotoFileInfo(photo)
-		tg.DownloadFileToPath(profilePicFPath+"_"+strconv.Itoa(index)+".jpg", file.InputLocation, file.DcID, int64(file.Size), NewFileProgressLogger())
-	}
-
 	log.Info("User Profile Photos Saved")
 
-	return photos, nil
 }
 
 func tgLoadAuths(tg *tgclient.TGClient) (mtproto.TL, error) {
