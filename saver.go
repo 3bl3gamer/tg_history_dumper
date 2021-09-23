@@ -138,6 +138,10 @@ func (s JSONFilesHistorySaver) accountFPath() string {
 	return s.Dirpath + "/account"
 }
 
+func (s JSONFilesHistorySaver) profilePicFPath() string {
+	return s.Dirpath + "/profilepic"
+}
+
 func (s JSONFilesHistorySaver) MessageFileFPath(chat *Chat, msgID int32, fname string) (string, error) {
 	dirPath, err := findFPathForID(s.Dirpath+"/files", int64(chat.ID), chat.Title)
 	if err != nil {

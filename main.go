@@ -318,6 +318,8 @@ func dump() error {
 			saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
 			saver.SaveAccount(*me)
 			log.Info("User Account Info Saved")
+
+			tgSaveUserProfilePhotos(tg, *me, saver.profilePicFPath())
 		}
 
 		// save contacts

@@ -185,6 +185,22 @@ func tgExtractDialogsData(dialogs []mtproto.TL, chats []mtproto.TL, users []mtpr
 	return extractedChats, nil
 }
 
+func removeDuplicateValues(intSlice []int) []int {
+	keys := make(map[int]bool)
+	list := []int{}
+
+	// If the key(values of the slice) is not equal
+	// to the already present value in new slice (list)
+	// then we append it. else we jump on another element.
+	for _, entry := range intSlice {
+		if _, value := keys[entry]; !value {
+			keys[entry] = true
+			list = append(list, entry)
+		}
+	}
+	return list
+}
+
 func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 	chats := make([]*Chat, 0)
 	offsetDate := int32(0)
@@ -208,12 +224,33 @@ func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 				return nil, merry.Wrap(err)
 			}
 			for _, d := range group {
-				chats = append(chats, d) //TODO: check duplicates
+				chats = append(chats, d)
 			}
 
 			offsetDate, err = tgGetMessageStamp(slice.Messages[len(slice.Messages)-1])
 			if err != nil {
 				return nil, merry.Wrap(err)
+			}
+
+			if len(chats) > int(slice.Count) { //Remove duplicates if chats > slice.Count
+				ids := []int{}
+				for _, chat := range chats {
+					i := int(chat.ID)
+					ids = append(ids, i)
+				}
+				unique_ids := removeDuplicateValues(ids)
+				unique_chats := make([]*Chat, 0)
+
+				for _, unique_id := range unique_ids {
+					for _, chat := range chats {
+
+						if int(chat.ID) == unique_id {
+							unique_chats = append(unique_chats, chat)
+							break
+						}
+					}
+				}
+				chats = unique_chats
 			}
 
 			if len(chats) == int(slice.Count) {
@@ -238,6 +275,36 @@ func tgLoadContacts(tg *tgclient.TGClient) (mtproto.TL, error) {
 
 	//fmt.Println("contacts response:", slog.StringifyIndent(res, "  "))
 	return res, nil
+}
+
+func tgSaveUserProfilePhotos(tg *tgclient.TGClient, user mtproto.TL_user, profilePicFPath string) {
+
+	inuser := &mtproto.TL_inputUser{
+		UserID: user.ID,
+	}
+
+	resPhotos := tg.SendSyncRetry(mtproto.TL_photos_getUserPhotos{ //(TL_photo)
+		UserID: inuser,
+	}, time.Second, 0, 30*time.Second)
+
+	switch resPhotos.(type) {
+	case mtproto.TL_photos_photos:
+		photos := resPhotos.(mtproto.TL_photos_photos)
+		for index, photo := range photos.Photos {
+			photo := photo.(mtproto.TL_photo)
+			file := tgGetPhotoFileInfo(photo)
+			tg.DownloadFileToPath(profilePicFPath+"_"+strconv.Itoa(index)+".jpg", file.InputLocation, file.DcID, int64(file.Size), NewFileProgressLogger())
+		}
+	case mtproto.TL_photos_photosSlice: //Downloads first 20 photos if 20+ photos exists
+		photos := resPhotos.(mtproto.TL_photos_photosSlice)
+		for index, photo := range photos.Photos {
+			photo := photo.(mtproto.TL_photo)
+			file := tgGetPhotoFileInfo(photo)
+			tg.DownloadFileToPath(profilePicFPath+"_"+strconv.Itoa(index)+".jpg", file.InputLocation, file.DcID, int64(file.Size), NewFileProgressLogger())
+		}
+	}
+	log.Info("User Profile Photos Saved")
+
 }
 
 func tgLoadAuths(tg *tgclient.TGClient) (mtproto.TL, error) {
@@ -392,6 +459,23 @@ func tgGetMessageMediaFileInfo(msgTL mtproto.TL) *TGFileInfo {
 	default:
 		return nil
 	}
+}
+
+func tgGetPhotoFileInfo(photo mtproto.TL_photo) *TGFileInfo {
+
+	size := findBestPhotoSize(photo)
+	file := &TGFileInfo{
+		InputLocation: mtproto.TL_inputPhotoFileLocation{
+			ID:            photo.ID,
+			AccessHash:    photo.AccessHash,
+			FileReference: photo.FileReference,
+			ThumbSize:     size.Type,
+		},
+		Size:  size.Size,
+		DcID:  photo.DcID,
+		FName: "pp.jpg",
+	}
+	return file
 }
 
 /*
