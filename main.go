@@ -92,6 +92,11 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 	if startID == 0 {
 		historyLimit = config.HistoryLimit.For(chat)
 	}
+	if historyLimit > chat.LastMessageID {
+		log.Debug("history limit is set to %d, but chat has %d message(s) as most (it is the last message ID), disabling limit",
+			historyLimit, chat.LastMessageID)
+		historyLimit = 0
+	}
 
 	greenf := color.New(color.FgGreen).SprintfFunc()
 
@@ -105,57 +110,71 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 			percent := (lastID - startID) * 100 / (chat.LastMessageID - startID)
 			approxRemCount := chat.LastMessageID - lastID
 			fromNum := lastID
+			limitText := ""
 			if historyLimit > 0 {
-				approxRemCount = historyLimit
+				if historyLimit < approxRemCount {
+					approxRemCount = historyLimit
+				}
 				fromNum = -historyLimit
+				if fromNum < 0 {
+					fromNum = 0
+				}
+				limitText = fmt.Sprintf(", %d limit", historyLimit)
 			}
-			log.Info("loading messages: %s from #%d (+%d) until #%d (~%d left)",
-				greenf("%d%%", percent), fromNum, chunkSize, chat.LastMessageID, approxRemCount)
+			log.Info("loading messages: %s from #%d (+%d) until #%d (~%d left%s)",
+				greenf("%d%%", percent), fromNum, chunkSize, chat.LastMessageID, approxRemCount, limitText)
 		}
 
-		allMessages, users, chats, err := tgLoadMessages(tg, chat.Obj, chunkSize, lastID, historyLimit)
+		newMessages, users, chats, err := tgLoadMessages(tg, chat.Obj, chunkSize, lastID, historyLimit)
 		if err != nil {
 			return merry.Wrap(err)
 		}
-		// using limit only once: when it is positive, reference messages chunk will be loaded
-		// (with approximatelly chunk_first_msg_ID = last_msg_ID_in_this_chat - historyLimit)
-		// and subsequent loading will go on as usual (from older messages to newer ones)
-		historyLimit = 0
+		if len(newMessages) == 0 && historyLimit > 0 {
+			// historyLimit applies a negative offset and (if a lot of messages were removed from the begining of the chat)
+			// returned message chunk may be empty. That means, there are less than `historyLimit-chunkSize` remaining messages,
+			// so we can just disable limit and retry
+			log.Debug("got no messages for %d offset; looks like there are less than %d messages, starting from the first one",
+				-historyLimit, historyLimit-chunkSize)
+			historyLimit = 0
+		} else {
+			// using limit only once: when it is positive, reference messages chunk will be loaded
+			// (with approximatelly chunk_first_msg_ID = last_msg_ID_in_this_chat - historyLimit)
+			// and subsequent loading will go on as usual (from older messages to newer ones)
+			historyLimit = 0
 
-		if err := saver.SaveRelatedUsers(users); err != nil {
-			return merry.Wrap(err)
-		}
-
-		if err := saver.SaveRelatedChats(chats); err != nil {
-			return merry.Wrap(err)
-		}
-
-		newMessages := make([]mtproto.TL, 0, len(allMessages))
-		for _, msg := range allMessages {
-			msgID, err := tgGetMessageID(msg)
-			if err != nil {
+			if err := saver.SaveRelatedUsers(users); err != nil {
 				return merry.Wrap(err)
 			}
-			newMessages = append(newMessages, msg)
-			if msgID > lastID {
-				lastID = msgID
-			}
-			if msgID < startID || startID == 0 {
-				startID = msgID
-			}
-		}
-		log.Debug("got %d new message(s)", len(newMessages))
 
-		if err := saver.SaveMessages(chat, newMessages); err != nil {
-			return merry.Wrap(err)
-		}
+			if err := saver.SaveRelatedChats(chats); err != nil {
+				return merry.Wrap(err)
+			}
 
-		if len(newMessages) < int(chunkSize) && lastID < chat.LastMessageID {
-			log.Warn(
-				"go %d message(s) (instead of %d), but their last ID=%d is still less than chat last message ID=%d; "+
-					"maybe someone has removed last message(s) while we were dumping; stopping with this chat for now.",
-				len(newMessages), chunkSize, lastID, chat.LastMessageID)
-			break
+			for _, msg := range newMessages {
+				msgID, err := tgGetMessageID(msg)
+				if err != nil {
+					return merry.Wrap(err)
+				}
+				if msgID > lastID {
+					lastID = msgID
+				}
+				if msgID < startID || startID == 0 {
+					startID = msgID
+				}
+			}
+			log.Debug("got %d new message(s)", len(newMessages))
+
+			if err := saver.SaveMessages(chat, newMessages); err != nil {
+				return merry.Wrap(err)
+			}
+
+			if len(newMessages) < int(chunkSize) && lastID < chat.LastMessageID {
+				log.Warn(
+					"go %d message(s) (instead of %d), but their last ID=%d is still less than chat last message ID=%d; "+
+						"maybe someone has removed last message(s) while we were dumping; stopping with this chat for now.",
+					len(newMessages), chunkSize, lastID, chat.LastMessageID)
+				break
+			}
 		}
 
 		now := time.Now()
