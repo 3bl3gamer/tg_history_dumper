@@ -345,21 +345,17 @@ func dump() error {
 			if err != nil {
 				return merry.Wrap(err)
 			}
-
-			contactsList := contacts.(mtproto.TL_contacts_contacts)
-			saver.SaveContacts(contactsList.Users)
+			saver.SaveContacts(contacts.Users)
 			log.Info("Contacts Saved")
 		}
 
 		// save sessions
 		if config.DoSessionsDump == "write" {
-			sessions, err := tgLoadAuths(tg)
+			authList, err := tgLoadAuths(tg)
 			if err != nil {
 				return merry.Wrap(err)
 			}
-
-			AuthList := sessions.(mtproto.TL_account_authorizations)
-			saver.SaveAuths(AuthList.Authorizations)
+			saver.SaveAuths(authList)
 			log.Info("Active Sessions Saved")
 		}
 

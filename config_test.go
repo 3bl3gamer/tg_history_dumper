@@ -37,7 +37,7 @@ func assertEqual(t *testing.T, a interface{}, b interface{}) {
 	}
 }
 
-func TestParseConfig__NoFile(t *testing.T) {
+func Test__ParseConfig__NoFile(t *testing.T) {
 	silentParseTestMode = true
 	cfg, err := ParseConfig("blablafile")
 	assertOk(t, err)
@@ -53,7 +53,7 @@ func TestParseConfig__NoFile(t *testing.T) {
 	})
 }
 
-func TestParseConfig__Empty(t *testing.T) {
+func Test__ParseConfig__Empty(t *testing.T) {
 	file, err := writeTestConfig(`{}`)
 	defer removeTestConfig(file)
 	assertOk(t, err)
@@ -72,7 +72,7 @@ func TestParseConfig__Empty(t *testing.T) {
 	})
 }
 
-func TestParseConfig__Some(t *testing.T) {
+func Test__ParseConfig__Some(t *testing.T) {
 	file, err := writeTestConfig(`{
 		"out_dir_path": "out",
 		"session_file_path": "sessfile",
@@ -95,7 +95,7 @@ func TestParseConfig__Some(t *testing.T) {
 
 	cfg, err := ParseConfig(file.Name())
 	assertOk(t, err)
-	id123 := int32(123)
+	id123 := int64(123)
 	bla := "bla"
 	uname := "uname"
 	userType := ChatUser
@@ -124,9 +124,29 @@ func TestParseConfig__Some(t *testing.T) {
 	})
 }
 
-func TestConfigChatFilter(t *testing.T) {
+func Test__ParseConfig__Int64ID(t *testing.T) {
+	file, err := writeTestConfig(`{
+		"history": [
+			{"id": 9223372036854775807},
+			{"id": 123000000000}
+		]
+	}`)
+	defer removeTestConfig(file)
+	assertOk(t, err)
+
+	cfg, err := ParseConfig(file.Name())
+	assertOk(t, err)
+	idMax := int64(0x7FFFFFFFFFFFFFFF)
+	id123 := int64(123000000000)
+	assertEqual(t, cfg.History, ConfigChatFilterMulti{[]ConfigChatFilter{
+		ConfigChatFilterAttrs{ID: &idMax},
+		ConfigChatFilterAttrs{ID: &id123},
+	}})
+}
+
+func Test__ConfigChatFilter(t *testing.T) {
 	var f ConfigChatFilter
-	id123 := int32(123)
+	id123 := int64(123)
 	bla := "bla"
 	uname := "uname"
 	channelType := ChatChannel
@@ -170,9 +190,9 @@ func TestConfigChatFilter(t *testing.T) {
 	assertEqual(t, f.Match(&Chat{ID: 12}, &TGFileInfo{Size: 512 * 1024}), MatchUndefined)
 }
 
-func Test_ConfigChatHistoryLimit_For(t *testing.T) {
-	id1 := int32(1)
-	id2 := int32(2)
+func Test__ConfigChatHistoryLimit__For(t *testing.T) {
+	id1 := int64(1)
+	id2 := int64(2)
 
 	var l ConfigChatHistoryLimit = map[int32]ConfigChatFilter{
 		1000: ConfigChatFilterAttrs{ID: &id1},

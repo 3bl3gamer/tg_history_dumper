@@ -56,7 +56,7 @@ func (t *ChatType) UnmarshalJSON(buf []byte) error {
 }
 
 type Chat struct {
-	ID            int32
+	ID            int64
 	Title         string
 	Username      string
 	LastMessageID int32
@@ -128,8 +128,8 @@ func tgGetMessageStamp(msgTL mtproto.TL) (int32, error) {
 }
 
 func tgExtractDialogsData(dialogs []mtproto.TL, chats []mtproto.TL, users []mtproto.TL) ([]*Chat, error) {
-	chatsByID := make(map[int32]mtproto.TL_chat)
-	channelsByID := make(map[int32]mtproto.TL_channel)
+	chatsByID := make(map[int64]mtproto.TL_chat)
+	channelsByID := make(map[int64]mtproto.TL_channel)
 	for _, chatTL := range chats {
 		switch chat := chatTL.(type) {
 		case mtproto.TL_chat:
@@ -144,7 +144,7 @@ func tgExtractDialogsData(dialogs []mtproto.TL, chats []mtproto.TL, users []mtpr
 			return nil, merry.Wrap(mtproto.WrongRespError(chatTL))
 		}
 	}
-	usersByID := make(map[int32]mtproto.TL_user)
+	usersByID := make(map[int64]mtproto.TL_user)
 	for _, userTL := range users {
 		user := userTL.(mtproto.TL_user)
 		usersByID[user.ID] = user
@@ -229,22 +229,24 @@ func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 	}
 }
 
-func tgLoadContacts(tg *tgclient.TGClient) (mtproto.TL, error) {
+func tgLoadContacts(tg *tgclient.TGClient) (*mtproto.TL_contacts_contacts, error) {
+	res := tg.SendSyncRetry(mtproto.TL_contacts_getContacts{}, time.Second, 0, 30*time.Second)
 
-	var stri int32 = 0
-	res := tg.SendSyncRetry(mtproto.TL_contacts_getContacts{
-		Hash: stri,
-	}, time.Second, 0, 30*time.Second)
-
-	//fmt.Println("contacts response:", slog.StringifyIndent(res, "  "))
-	return res, nil
+	contacts, ok := res.(mtproto.TL_contacts_contacts)
+	if !ok {
+		return nil, merry.Wrap(mtproto.WrongRespError(res))
+	}
+	return &contacts, nil
 }
 
-func tgLoadAuths(tg *tgclient.TGClient) (mtproto.TL, error) {
-
+func tgLoadAuths(tg *tgclient.TGClient) ([]mtproto.TL, error) {
 	res := tg.SendSyncRetry(mtproto.TL_account_getAuthorizations{}, time.Second, 0, 30*time.Second)
-	//fmt.Println("contacts response:", slog.StringifyIndent(res, "  "))
-	return res, nil
+
+	auths, ok := res.(mtproto.TL_account_authorizations)
+	if !ok {
+		return nil, merry.Wrap(mtproto.WrongRespError(res))
+	}
+	return auths.Authorizations, nil
 }
 
 // Works in two modes:

@@ -14,7 +14,7 @@ import (
 )
 
 type UserData struct {
-	ID                    int32
+	ID                    int64
 	Username              string
 	FirstName, LastName   string
 	PhoneNumber, LangCode string
@@ -32,7 +32,7 @@ func (u *UserData) Equals(other *mtproto.TL_user) bool {
 }
 
 type ChatData struct {
-	ID        int32
+	ID        int64
 	Username  string
 	Title     string
 	IsChannel bool
@@ -109,8 +109,8 @@ type HistorySaver interface {
 
 type JSONFilesHistorySaver struct {
 	Dirpath         string
-	usersData       map[int32]*UserData
-	chatsData       map[int32]*ChatData
+	usersData       map[int64]*UserData
+	chatsData       map[int64]*ChatData
 	requestFileFunc SaveFileCallbackFunc
 }
 
@@ -269,7 +269,7 @@ func (s JSONFilesHistorySaver) loadChats() error {
 
 func (s JSONFilesHistorySaver) SaveRelatedUsers(users []mtproto.TL) error {
 	if s.usersData == nil {
-		s.usersData = make(map[int32]*UserData)
+		s.usersData = make(map[int64]*UserData)
 		if err := s.loadUsers(); err != nil {
 			return merry.Wrap(err)
 		}
@@ -315,7 +315,7 @@ func (s JSONFilesHistorySaver) SaveRelatedUsers(users []mtproto.TL) error {
 
 func (s JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
 	if s.chatsData == nil {
-		s.chatsData = make(map[int32]*ChatData)
+		s.chatsData = make(map[int64]*ChatData)
 		if err := s.loadChats(); err != nil {
 			return merry.Wrap(err)
 		}

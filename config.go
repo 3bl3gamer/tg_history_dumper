@@ -156,7 +156,7 @@ func (f ConfigChatFilterType) Match(chat *Chat, file *TGFileInfo) MatchResult {
 }
 
 type ConfigChatFilterAttrs struct {
-	ID           *int32        `json:"id,omitempty"`
+	ID           *int64        `json:"id,omitempty"`
 	Title        *string       `json:"title,omitempty"`
 	Username     *string       `json:"username,omitempty"`
 	Type         *ChatType     `json:"type,omitempty"`
