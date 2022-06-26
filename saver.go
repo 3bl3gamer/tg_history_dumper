@@ -14,12 +14,33 @@ import (
 )
 
 type UserData struct {
-	ID                    int64
-	Username              string
-	FirstName, LastName   string
-	PhoneNumber, LangCode string
-	IsBot                 bool
-	UpdatedAt             time.Time
+	ID          int64
+	Username    string
+	FirstName   string
+	LastName    string
+	PhoneNumber string
+	IsBot       bool
+	IsFake      bool
+	IsScam      bool
+	IsVerified  bool
+	IsPremium   bool
+	UpdatedAt   time.Time
+}
+
+func NewUserDataFromTG(tgUser mtproto.TL_user) *UserData {
+	return &UserData{
+		ID:          tgUser.ID,
+		FirstName:   tgUser.FirstName,
+		LastName:    tgUser.LastName,
+		Username:    tgUser.Username,
+		PhoneNumber: tgUser.Phone,
+		IsBot:       tgUser.Bot,
+		IsFake:      tgUser.Fake,
+		IsScam:      tgUser.Scam,
+		IsVerified:  tgUser.Verified,
+		IsPremium:   tgUser.Premium,
+		UpdatedAt:   time.Now(),
+	}
 }
 
 func (u *UserData) Equals(other *mtproto.TL_user) bool {
@@ -28,7 +49,8 @@ func (u *UserData) Equals(other *mtproto.TL_user) bool {
 	return (other.Username == "" || u.Username == other.Username) &&
 		u.FirstName == other.FirstName && u.LastName == other.LastName &&
 		u.PhoneNumber == other.Phone &&
-		u.LangCode == other.LangCode
+		u.IsFake == other.Fake && u.IsScam == other.Scam &&
+		u.IsVerified == other.Verified && u.IsPremium == other.Premium
 }
 
 type ChatData struct {
@@ -284,16 +306,7 @@ func (s JSONFilesHistorySaver) SaveRelatedUsers(users []mtproto.TL) error {
 
 		user, ok := s.usersData[tgUser.ID]
 		if !ok || !user.Equals(&tgUser) {
-			newUser := &UserData{
-				ID:          tgUser.ID,
-				FirstName:   tgUser.FirstName,
-				LastName:    tgUser.LastName,
-				Username:    tgUser.Username,
-				PhoneNumber: tgUser.Phone,
-				LangCode:    tgUser.LangCode,
-				IsBot:       tgUser.Bot,
-				UpdatedAt:   time.Now(),
-			}
+			newUser := NewUserDataFromTG(tgUser)
 
 			if encoder == nil {
 				file, err := s.openForAppend(s.usersFPath())
