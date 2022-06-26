@@ -13,14 +13,14 @@ It **will not fetch channel comments**. If you need them, you should join channe
 ## Installing
 
 ```
-go get github.com/3bl3gamer/tg-history-dumper
+go install github.com/3bl3gamer/tg_history_dumper@latest
 tg_history_dumper [args]
 ```
 
 Or
 ```
-git clone https://github.com/3bl3gamer/tg-history-dumper
-cd tg-history-dumper
+git clone https://github.com/3bl3gamer/tg_history_dumper
+cd tg_history_dumper
 go build
 ./tg_history_dumper [args]
 ```

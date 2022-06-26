@@ -13,14 +13,14 @@
 ## 安装
 
 ```
-go get github.com/3bl3gamer/tg-history-dumper
+go get github.com/3bl3gamer/tg_history_dumper
 tg_history_dumper [args]
 ```
 
 或者
 ```
-git clone https://github.com/3bl3gamer/tg-history-dumper
-cd tg-history-dumper
+git clone https://github.com/3bl3gamer/tg_history_dumper
+cd tg_history_dumper
 go build
 ./tg_history_dumper [args]
 ```
