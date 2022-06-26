@@ -326,12 +326,12 @@ func tgObjToMap(obj mtproto.TL) map[string]interface{} {
 type TGFileInfo struct {
 	InputLocation mtproto.TL
 	DcID          int32
-	Size          int32
+	Size          int64
 	FName         string
 }
 
 // findBestPhotoSize returns largest photo size of images.
-// Usually it is the last size-object. But SOME TIMES Sizes aray is reversed.
+// Usually it is the last size-object. But SOMETIMES Sizes aray is reversed.
 func findBestPhotoSize(photo mtproto.TL_photo) *mtproto.TL_photoSize {
 	var bestSize *mtproto.TL_photoSize
 	for _, sizeTL := range photo.Sizes {
@@ -368,7 +368,7 @@ func tgGetMessageMediaFileInfo(msgTL mtproto.TL) *TGFileInfo {
 				FileReference: photo.FileReference,
 				ThumbSize:     size.Type,
 			},
-			Size:  size.Size,
+			Size:  int64(size.Size),
 			DcID:  photo.DcID,
 			FName: "photo.jpg",
 		}

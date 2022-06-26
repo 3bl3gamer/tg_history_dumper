@@ -332,14 +332,14 @@ func dump() error {
 			log.Info(colf("%-7s %10d %s  %s (%s)", chat.Type, chat.ID, historyLimitStr, title, chat.Username))
 		}
 	} else {
-		// save user info
+		// saveing user info
 		if config.DoAccountDump == "write" {
 			saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
 			saver.SaveAccount(*me)
 			log.Info("User Account Info Saved")
 		}
 
-		// save contacts
+		// saveing contacts
 		if config.DoContactsDump == "write" {
 			contacts, err := tgLoadContacts(tg)
 			if err != nil {
@@ -349,7 +349,7 @@ func dump() error {
 			log.Info("Contacts Saved")
 		}
 
-		// save sessions
+		// saveing sessions
 		if config.DoSessionsDump == "write" {
 			authList, err := tgLoadAuths(tg)
 			if err != nil {
@@ -359,6 +359,7 @@ func dump() error {
 			log.Info("Active Sessions Saved")
 		}
 
+		// saving messages
 		if err := saveChatsAsRelated(chats, saver); err != nil {
 			return merry.Wrap(err)
 		}
