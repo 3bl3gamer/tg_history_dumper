@@ -454,7 +454,10 @@ func (s JSONFilesHistorySaver) SaveMessages(chat *Chat, messages []mtproto.TL) e
 		msgMap := tgObjToMap(msg)
 		msgMap["_TL_LAYER"] = mtproto.TL_Layer
 		if s.requestFileFunc != nil {
-			fileInfo := tgGetMessageMediaFileInfo(msg)
+			err, fileInfo := tgFindMessageMediaFileInfo(msg)
+			if err != nil {
+				return merry.Wrap(err)
+			}
 			if fileInfo != nil {
 				if err := s.requestFileFunc(chat, fileInfo, msgMap["ID"].(int32)); err != nil {
 					return merry.Wrap(err)

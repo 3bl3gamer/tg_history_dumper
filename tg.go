@@ -330,45 +330,64 @@ type TGFileInfo struct {
 	FName         string
 }
 
-// findBestPhotoSize returns largest photo size of images.
+// getBestPhotoSize returns largest photo size of images.
 // Usually it is the last size-object. But SOMETIMES Sizes aray is reversed.
-func findBestPhotoSize(photo mtproto.TL_photo) *mtproto.TL_photoSize {
-	var bestSize *mtproto.TL_photoSize
+func getBestPhotoSize(photo mtproto.TL_photo) (err error, sizeType string, sizeBytes int32) {
+	maxResolution := int32(0)
 	for _, sizeTL := range photo.Sizes {
-		if size, ok := sizeTL.(mtproto.TL_photoSize); ok {
-			if bestSize == nil || size.Size > bestSize.Size {
-				bestSize = &size
+		switch size := sizeTL.(type) {
+		case mtproto.TL_photoSize:
+			if size.W*size.H > maxResolution {
+				maxResolution = size.W * size.H
+				sizeType = size.Type
+				sizeBytes = size.Size
 			}
+		case mtproto.TL_photoSizeProgressive:
+			if size.W*size.H > maxResolution {
+				maxResolution = size.W * size.H
+				sizeType = size.Type
+				if len(size.Sizes) > 0 {
+					sizeBytes = size.Sizes[len(size.Sizes)-1]
+				}
+			}
+		case mtproto.TL_photoStrippedSize:
+			// not needed
+		default:
+			err = merry.Errorf(mtproto.UnexpectedTL("photoSize", sizeTL))
+			return
 		}
 	}
-	return bestSize
+	if maxResolution == 0 {
+		err = merry.New("could not find suitable image size")
+		return
+	}
+	return
 }
 
-func tgGetMessageMediaFileInfo(msgTL mtproto.TL) *TGFileInfo {
+func tgFindMessageMediaFileInfo(msgTL mtproto.TL) (error, *TGFileInfo) {
 	msg, ok := msgTL.(mtproto.TL_message)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	switch media := msg.Media.(type) {
 	case mtproto.TL_messageMediaPhoto:
 		if _, ok := media.Photo.(mtproto.TL_photoEmpty); ok {
 			log.Error(nil, "got 'photoEmpty' in media of message #%d", msg.ID)
-			return nil
+			return nil, nil
 		}
 		photo := media.Photo.(mtproto.TL_photo)
-		size := findBestPhotoSize(photo)
-		if size == nil {
-			log.Error(nil, "could not found suitable image size of message #%d", msg.ID)
-			panic("image size search failed")
+		err, sizeType, sizeBytes := getBestPhotoSize(photo)
+		if err != nil {
+			return merry.Prependf(err, "image size of message #%d", msg.ID), nil
 		}
-		return &TGFileInfo{
+		return nil, &TGFileInfo{
 			InputLocation: mtproto.TL_inputPhotoFileLocation{
 				ID:            photo.ID,
 				AccessHash:    photo.AccessHash,
 				FileReference: photo.FileReference,
-				ThumbSize:     size.Type,
+				ThumbSize:     sizeType,
 			},
-			Size:  int64(size.Size),
+			Size:  int64(sizeBytes),
 			DcID:  photo.DcID,
 			FName: "photo.jpg",
 		}
@@ -381,7 +400,7 @@ func tgGetMessageMediaFileInfo(msgTL mtproto.TL) *TGFileInfo {
 				break
 			}
 		}
-		return &TGFileInfo{
+		return nil, &TGFileInfo{
 			InputLocation: mtproto.TL_inputDocumentFileLocation{
 				ID:            doc.ID,
 				AccessHash:    doc.AccessHash,
@@ -392,7 +411,7 @@ func tgGetMessageMediaFileInfo(msgTL mtproto.TL) *TGFileInfo {
 			FName: fname,
 		}
 	default:
-		return nil
+		return nil, nil
 	}
 }
 
