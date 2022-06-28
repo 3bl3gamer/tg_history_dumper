@@ -13,7 +13,7 @@
 ## 安装
 
 ```
-go get github.com/3bl3gamer/tg_history_dumper
+go install github.com/3bl3gamer/tg_history_dumper@latest
 tg_history_dumper [args]
 ```
 
