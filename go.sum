@@ -1,6 +1,6 @@
 cloud.google.com/go v0.26.0/go.mod h1:aQUYkXzVsufM+DwF1aE+0xfcU+56JwCaLick0ClmMTw=
-github.com/3bl3gamer/tgclient v0.143.1 h1:oSowXn46ZOPNxs2FYuyIUyksJWtccF3XMaM3vyJ+0lc=
-github.com/3bl3gamer/tgclient v0.143.1/go.mod h1:I71Q2aKqS9q/Ry+JkP12c/Rtrm9lr3KenyqrxYmM+OA=
+github.com/3bl3gamer/tgclient v0.143.2 h1:PW+vdFFRslx0yBN9Vmnit36VlzM36x6qyxP3pR+sSXY=
+github.com/3bl3gamer/tgclient v0.143.2/go.mod h1:I71Q2aKqS9q/Ry+JkP12c/Rtrm9lr3KenyqrxYmM+OA=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/ansel1/merry v1.5.0/go.mod h1:wUy/yW0JX0ix9GYvUbciq+bi3jW/vlKPlbpI7qdZpOw=
