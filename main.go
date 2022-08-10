@@ -209,6 +209,7 @@ func dump() error {
 	outDirPath := flag.String("out", "", "output directory path, overriders config.out_dir_path")
 	chatTitle := flag.String("chat", "", "title of the chat to dump, overrides config.history")
 	doListChats := flag.Bool("list-chats", false, "list all available chats")
+	doLogout := flag.Bool("logout", false, "Logout and clear session")
 	logDebug := flag.Bool("debug", false, "show debug log messages")
 	tgLogDebug := flag.Bool("debug-tg", false, "show debug TGClient log messages")
 	doAccountDump := flag.String("dump-account", "", "enable basic user information dump, use 'write' to enable dump, overriders config.dump_account")
@@ -331,6 +332,11 @@ func dump() error {
 			}
 			log.Info(colf("%-7s %10d %s  %s (%s)", chat.Type, chat.ID, historyLimitStr, title, chat.Username))
 		}
+
+	}else if (*doLogout){
+
+		tgLogout(tg)
+
 	} else {
 		// saveing user info
 		if config.DoAccountDump == "write" {

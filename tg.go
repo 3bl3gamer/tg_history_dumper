@@ -239,6 +239,11 @@ func tgLoadContacts(tg *tgclient.TGClient) (*mtproto.TL_contacts_contacts, error
 	return &contacts, nil
 }
 
+func tgLogout(tg *tgclient.TGClient) () {
+	tg.SendSyncRetry(mtproto.TL_auth_logOut{}, time.Second, 0, 30*time.Second)
+	log.Info("Logged Out")
+}
+
 func tgLoadAuths(tg *tgclient.TGClient) ([]mtproto.TL, error) {
 	res := tg.SendSyncRetry(mtproto.TL_account_getAuthorizations{}, time.Second, 0, 30*time.Second)
 

@@ -246,6 +246,8 @@ Usage of tg_history_dumper:
   -dump-sessions string
         enable active sessions dump, use 'write' to enable dump, overriders config.dump_sessions
   -list-chats
+        Logout from current session
+  -logout
         list all available chats
   -out string
         output directory path, overriders config.out_dir_path
