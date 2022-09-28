@@ -239,9 +239,13 @@ func tgLoadContacts(tg *tgclient.TGClient) (*mtproto.TL_contacts_contacts, error
 	return &contacts, nil
 }
 
-func tgLogout(tg *tgclient.TGClient) () {
-	tg.SendSyncRetry(mtproto.TL_auth_logOut{}, time.Second, 0, 30*time.Second)
-	log.Info("Logged Out")
+func tgLogout(tg *tgclient.TGClient) (error) {
+	res := tg.SendSyncRetry(mtproto.TL_auth_logOut{}, time.Second, 0, 30*time.Second)
+	if _, ok := res.(mtproto.TL_auth_loggedOut); !ok {
+		return merry.New(mtproto.UnexpectedTL("logout", res))
+	}
+	log.Info("Logged Out Successfully")
+	return nil
 }
 
 func tgLoadAuths(tg *tgclient.TGClient) ([]mtproto.TL, error) {
