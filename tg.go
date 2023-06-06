@@ -11,7 +11,7 @@ import (
 
 	"github.com/3bl3gamer/tgclient"
 	"github.com/3bl3gamer/tgclient/mtproto"
-	"github.com/ansel1/merry"
+	"github.com/ansel1/merry/v2"
 	"github.com/fatih/color"
 	"golang.org/x/net/proxy"
 )
@@ -250,10 +250,10 @@ func tgLoadAuths(tg *tgclient.TGClient) ([]mtproto.TL, error) {
 }
 
 // Works in two modes:
-// 1) when recentOffset <= 0:
-//    requests `limit` messages newer than `lastMsgID`
-// 2) when recentOffset > 0:
-//    requests `limit` oldest messages of `recentOffset` most recent messages
+//  1. when recentOffset <= 0:
+//     requests `limit` messages newer than `lastMsgID`
+//  2. when recentOffset > 0:
+//     requests `limit` oldest messages of `recentOffset` most recent messages
 func tgLoadMessages(
 	tg *tgclient.TGClient, peerTL mtproto.TL, limit, lastMsgID, recentOffset int32,
 ) ([]mtproto.TL, []mtproto.TL, []mtproto.TL, error) {

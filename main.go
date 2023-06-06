@@ -10,7 +10,7 @@ import (
 
 	"github.com/3bl3gamer/tgclient"
 	"github.com/3bl3gamer/tgclient/mtproto"
-	"github.com/ansel1/merry"
+	"github.com/ansel1/merry/v2"
 	"github.com/fatih/color"
 )
 
@@ -270,7 +270,7 @@ func dump() error {
 	overrideStrParam(&config.DoSessionsDump, doSessionsDump)
 
 	if config.AppID == 0 || config.AppHash == "" {
-		println("app_id and app_hash are required (in config or flags)")
+		log.Error(nil, "app_id and app_hash are required (in config or flags)")
 		flag.Usage()
 		os.Exit(2)
 	}

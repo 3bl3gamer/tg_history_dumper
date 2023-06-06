@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/3bl3gamer/tgclient/mtproto"
-	"github.com/ansel1/merry"
+	"github.com/ansel1/merry/v2"
 )
 
 type UserData struct {
