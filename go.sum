@@ -390,8 +390,8 @@ cloud.google.com/go/workflows v1.7.0/go.mod h1:JhSrZuVZWuiDfKEFxU0/F1PQjmpnpcoIS
 cloud.google.com/go/workflows v1.8.0/go.mod h1:ysGhmEajwZxGn1OhGOGKsTXc5PyxOc0vfKf5Af+to4M=
 cloud.google.com/go/workflows v1.9.0/go.mod h1:ZGkj1aFIOd9c8Gerkjjq7OW7I5+l6cSvT3ujaO/WwSA=
 dmitri.shuralyov.com/gpu/mtl v0.0.0-20190408044501-666a987793e9/go.mod h1:H6x//7gZCb22OMCxBHrMx7a5I7Hp++hsVxbQ4BYO7hU=
-github.com/3bl3gamer/tgclient v0.158.2 h1:tEE7MMyCcp68h/gUAc/9Fq4GXvAdk5O1j/7I0ITw3Pk=
-github.com/3bl3gamer/tgclient v0.158.2/go.mod h1:sXpusvNAWVKh34lBpbqrzn/0zABxvnyF5QllovtnyAc=
+github.com/3bl3gamer/tgclient v0.158.3 h1:jNI7GY0WDou81n6kBUiq+mz6dYRiMvahqyDZ50Re7uI=
+github.com/3bl3gamer/tgclient v0.158.3/go.mod h1:sXpusvNAWVKh34lBpbqrzn/0zABxvnyF5QllovtnyAc=
 github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03qcyfWMU=
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/OneOfOne/xxhash v1.2.2/go.mod h1:HSdplMjZKSmBqAxg5vPj2TmRDmfkzw+cTzAElWljhcU=
