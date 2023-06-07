@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -53,19 +54,46 @@ func (u *UserData) Equals(other *mtproto.TL_user) bool {
 		u.IsVerified == other.Verified && u.IsPremium == other.Premium
 }
 
+type ForumTopicData struct {
+	ID          int32
+	Title       string
+	IconColor   int32
+	IconEmojiID int64
+	IsPinned    bool
+}
+
+func (t *ForumTopicData) Equals(other *ForumTopicData) bool {
+	return t.Title == other.Title &&
+		t.IconColor == other.IconColor &&
+		t.IconEmojiID == other.IconEmojiID &&
+		t.IsPinned == other.IsPinned
+}
+
 type ChatData struct {
 	ID        int64
 	Username  string
 	Title     string
 	IsChannel bool
+	Topics    []ForumTopicData
 	UpdatedAt time.Time
 }
 
 func (c *ChatData) Equals(other *ChatData) bool {
-	return c.Username == other.Username && c.Title == other.Title
+	if !(c.Username == other.Username &&
+		c.Title == other.Title &&
+		len(c.Topics) == len(other.Topics)) {
+		return false
+	}
+	for i, topic := range c.Topics {
+		if !topic.Equals(&other.Topics[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 type SaveFileCallbackFunc func(*Chat, *TGFileInfo, int32) error
+type FetchTopicsCallbackFunc func(*mtproto.TL_channel) ([]mtproto.TL_forumTopic, error)
 
 func fnameIDPrefix(id int64) string {
 	return strconv.FormatInt(id, 10) + "_"
@@ -127,6 +155,7 @@ type HistorySaver interface {
 	SaveRelatedChats([]mtproto.TL) error
 	SaveMessages(*Chat, []mtproto.TL) error
 	SetFileRequestCallback(SaveFileCallbackFunc)
+	SetTopicsRequestCallback(FetchTopicsCallbackFunc)
 }
 
 type JSONFilesHistorySaver struct {
@@ -134,6 +163,7 @@ type JSONFilesHistorySaver struct {
 	usersData       map[int64]*UserData
 	chatsData       map[int64]*ChatData
 	requestFileFunc SaveFileCallbackFunc
+	fetchTopicsFunc FetchTopicsCallbackFunc
 }
 
 func (s JSONFilesHistorySaver) chatFPath(chat *Chat) (string, error) {
@@ -279,6 +309,7 @@ func (s JSONFilesHistorySaver) loadUsers() error {
 	return s.loadRelated(s.usersFPath(), &UserData{}, func(userI interface{}) {
 		user := *userI.(*UserData)
 		s.usersData[user.ID] = &user
+		*userI.(*UserData) = UserData{}
 	})
 }
 
@@ -286,7 +317,40 @@ func (s JSONFilesHistorySaver) loadChats() error {
 	return s.loadRelated(s.chatsFPath(), &ChatData{}, func(chatI interface{}) {
 		chat := *chatI.(*ChatData)
 		s.chatsData[chat.ID] = &chat
+		*chatI.(*ChatData) = ChatData{}
 	})
+}
+
+func (s JSONFilesHistorySaver) fetchTopicsIfNeeded(channel mtproto.TL_channel) ([]ForumTopicData, error) {
+	if !channel.Forum || s.fetchTopicsFunc == nil {
+		return nil, nil
+	}
+
+	topics, err := s.fetchTopicsFunc(&channel)
+	if err != nil {
+		return nil, merry.Wrap(err)
+	}
+
+	pinnedTopicsData := make([]ForumTopicData, 0, len(topics))
+	regularTopicsData := make([]ForumTopicData, 0, len(topics))
+	for _, topic := range topics {
+		data := ForumTopicData{
+			ID:          topic.ID,
+			Title:       topic.Title,
+			IconColor:   topic.IconColor,
+			IconEmojiID: topic.IconEmojiID,
+			IsPinned:    topic.Pinned,
+		}
+		if topic.Pinned {
+			pinnedTopicsData = append(pinnedTopicsData, data)
+		} else {
+			regularTopicsData = append(regularTopicsData, data)
+		}
+	}
+
+	sort.Slice(regularTopicsData, func(i, j int) bool { return regularTopicsData[i].ID < regularTopicsData[j].ID })
+
+	return append(pinnedTopicsData, regularTopicsData...), nil
 }
 
 func (s JSONFilesHistorySaver) SaveRelatedUsers(users []mtproto.TL) error {
@@ -343,7 +407,11 @@ func (s JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
 		case mtproto.TL_chatForbidden:
 			newChat = &ChatData{ID: c.ID, Title: c.Title}
 		case mtproto.TL_channel:
-			newChat = &ChatData{ID: c.ID, Title: c.Title, Username: c.Username, IsChannel: !c.Megagroup}
+			topics, err := s.fetchTopicsIfNeeded(c)
+			if err != nil {
+				return merry.Wrap(err)
+			}
+			newChat = &ChatData{ID: c.ID, Title: c.Title, Username: c.Username, IsChannel: !c.Megagroup, Topics: topics}
 		case mtproto.TL_channelForbidden:
 			newChat = &ChatData{ID: c.ID, Title: c.Title, IsChannel: !c.Megagroup}
 		default:
@@ -477,4 +545,8 @@ func (s JSONFilesHistorySaver) SaveMessages(chat *Chat, messages []mtproto.TL) e
 
 func (s *JSONFilesHistorySaver) SetFileRequestCallback(callback SaveFileCallbackFunc) {
 	s.requestFileFunc = callback
+}
+
+func (s *JSONFilesHistorySaver) SetTopicsRequestCallback(callback FetchTopicsCallbackFunc) {
+	s.fetchTopicsFunc = callback
 }

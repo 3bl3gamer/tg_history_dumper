@@ -283,22 +283,42 @@ func dump() error {
 
 	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
 	saver.SetFileRequestCallback(func(chat *Chat, file *TGFileInfo, msgID int32) error {
-		var err error
 		if config.Media.Match(chat, file) == MatchTrue {
 			fpath, err := saver.MessageFileFPath(chat, msgID, file.FName)
+			if err != nil {
+				return merry.Wrap(err)
+			}
 			_, err = os.Stat(fpath)
 			if os.IsNotExist(err) {
 				log.Info("downloading file to %s", fpath)
-				_, err = tg.DownloadFileToPath(fpath, file.InputLocation, file.DcID, int64(file.Size), NewFileProgressLogger())
+				_, err := tg.DownloadFileToPath(fpath, file.InputLocation, file.DcID, int64(file.Size), NewFileProgressLogger())
 				if isBrokenFileError(err) {
 					log.Error(nil, "in chat %d %s (%s): wrong file: %s", chat.ID, chat.Title, chat.Username, fpath)
 					err = nil
 				}
+				return merry.Wrap(err)
 			}
+			return merry.Wrap(err)
 		} else {
 			log.Debug("skipping file '%s' of message #%d", file.FName, msgID)
+			return nil
 		}
-		return merry.Wrap(err)
+	})
+	topicsCache := make(map[int64][]mtproto.TL_forumTopic)
+	saver.SetTopicsRequestCallback(func(channel *mtproto.TL_channel) ([]mtproto.TL_forumTopic, error) {
+		if !channel.Forum {
+			return nil, nil
+		}
+		if topics, ok := topicsCache[channel.ID]; ok {
+			return topics, nil
+		}
+		log.Info("loading channel '%s' topics", channel.Title)
+		topics, err := tgLoadTopics(tg, channel)
+		if err != nil {
+			return nil, merry.Wrap(err)
+		}
+		topicsCache[channel.ID] = topics
+		return topics, nil
 	})
 
 	// loading chats

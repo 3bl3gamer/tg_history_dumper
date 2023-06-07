@@ -127,6 +127,24 @@ func tgGetMessageStamp(msgTL mtproto.TL) (int32, error) {
 	}
 }
 
+func tgGetMessageStampByID(msgsTL []mtproto.TL, id int32) (int32, error) {
+	for _, msgTL := range msgsTL {
+		switch msg := msgTL.(type) {
+		case mtproto.TL_message:
+			if msg.ID == id {
+				return msg.Date, nil
+			}
+		case mtproto.TL_messageService:
+			if msg.ID == id {
+				return msg.Date, nil
+			}
+		default:
+			return 0, merry.Wrap(mtproto.WrongRespError(msg))
+		}
+	}
+	return 0, merry.Errorf("message with ID=%d not found", id)
+}
+
 func tgExtractDialogsData(dialogs []mtproto.TL, chats []mtproto.TL, users []mtproto.TL) ([]*Chat, error) {
 	chatsByID := make(map[int64]mtproto.TL_chat)
 	channelsByID := make(map[int64]mtproto.TL_channel)
@@ -247,6 +265,74 @@ func tgLoadAuths(tg *tgclient.TGClient) ([]mtproto.TL, error) {
 		return nil, merry.Wrap(mtproto.WrongRespError(res))
 	}
 	return auths.Authorizations, nil
+}
+
+func tgLoadTopics(tg *tgclient.TGClient, channel *mtproto.TL_channel) ([]mtproto.TL_forumTopic, error) {
+	pinnedTopics := make([]mtproto.TL_forumTopic, 0)
+	regularTopics := make([]mtproto.TL_forumTopic, 0)
+	knownTopicIDs := make(map[int32]struct{})
+	// First iteration runs with offsetDate=0. This makes getForumTopics return topics chunk
+	// with sorted pinned topics at the begining. This seems the only way to get sorted pinned topics.
+	// Non-pinned topics will be sorted by last messages date.
+	// Other iterations (even after restart in case of missing (because of update) topics) are run
+	// with non-zero offsetDate. This makes getForumTopics return topics chunk with ALL topics sorted by last message date.
+	// Since there are <=5 pinned topics, limit must be GREATER than 5. Because we need at least one non-pinned topic
+	// to set correct offsetDate for second iteration (pinned topic last message date can be old).
+	limit := int32(6)
+	offsetDate := int32(0)
+	for {
+		res := tg.SendSyncRetry(mtproto.TL_channels_getForumTopics{
+			Channel:    mtproto.TL_inputChannel{ChannelID: channel.ID, AccessHash: channel.AccessHash},
+			OffsetDate: offsetDate,
+			Limit:      limit,
+		}, time.Second, 0, 30*time.Second)
+
+		ftopics, ok := res.(mtproto.TL_messages_forumTopics)
+		if !ok {
+			return nil, merry.Wrap(mtproto.WrongRespError(res))
+		}
+
+		for _, topicTL := range ftopics.Topics {
+			switch topic := topicTL.(type) {
+			case mtproto.TL_forumTopic:
+				// using date from the last topic in the chunk, it should be not pinned (if limit is large enough)
+				if ftopics.OrderByCreateDate {
+					offsetDate = topic.Date
+				} else {
+					msgDate, err := tgGetMessageStampByID(ftopics.Messages, topic.TopMessage)
+					if err != nil {
+						return nil, merry.Wrap(err)
+					}
+					offsetDate = msgDate
+				}
+
+				if _, known := knownTopicIDs[topic.ID]; !known {
+					if topic.Pinned {
+						pinnedTopics = append(pinnedTopics, topic)
+					} else {
+						regularTopics = append(regularTopics, topic)
+					}
+					knownTopicIDs[topic.ID] = struct{}{}
+				}
+			case mtproto.TL_forumTopicDeleted:
+				// Deleted topics are returned sometimes here. They do not count in ftopics.Count.
+				knownTopicIDs[topic.ID] = struct{}{}
+			default:
+				return nil, merry.Wrap(mtproto.WrongRespError(res))
+			}
+		}
+
+		curTopicsCount := len(pinnedTopics) + len(regularTopics)
+		destTopicsCount := int(ftopics.Count + 1) //+1 since "General" topic is not included in count
+		if curTopicsCount == destTopicsCount {
+			break
+		}
+		if len(ftopics.Topics) < int(limit) {
+			log.Warn("some topics seem missing: got %d in the end, expected %d; retrying from start", curTopicsCount, destTopicsCount)
+			offsetDate = int32(time.Now().Unix()) //important: non-zero offsetDate disables pinned topics sorting
+		}
+	}
+	return append(pinnedTopics, regularTopics...), nil
 }
 
 // Works in two modes:
