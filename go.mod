@@ -8,5 +8,5 @@ require (
 	github.com/ansel1/merry/v2 v2.1.1
 	github.com/fatih/color v1.15.0
 	github.com/go-test/deep v1.1.0
-	golang.org/x/net v0.10.0
+	golang.org/x/net v0.17.0
 )
