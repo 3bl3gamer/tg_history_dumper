@@ -176,37 +176,51 @@ func tgExtractDialogsData(dialogs []mtproto.TL, chats []mtproto.TL, users []mtpr
 	extractedChats := make([]*Chat, len(dialogs))
 	for i, chatTL := range dialogs {
 		dialog := chatTL.(mtproto.TL_dialog)
-		ext := &Chat{LastMessageID: dialog.TopMessage}
 		switch peer := dialog.Peer.(type) {
 		case mtproto.TL_peerUser:
-			user := usersByID[peer.UserID]
-			ext.ID = user.ID
-			ext.Title = strings.TrimSpace(user.FirstName + " " + user.LastName)
-			ext.Username = user.Username
-			ext.Type = ChatUser
-			ext.Obj = user
+			extractedChats[i] = tgExtractUserData(usersByID[peer.UserID], dialog.TopMessage)
 		case mtproto.TL_peerChat:
-			chat := chatsByID[peer.ChatID]
-			ext.ID = chat.ID
-			ext.Title = chat.Title
-			ext.Type = ChatGroup
-			ext.Obj = chat
+			extractedChats[i] = tgExtractChatData(chatsByID[peer.ChatID], dialog.TopMessage)
 		case mtproto.TL_peerChannel:
-			channel := channelsByID[peer.ChannelID]
-			ext.ID = channel.ID
-			ext.Title = channel.Title
-			ext.Username = channel.Username
-			ext.Type = ChatChannel
-			if channel.Megagroup {
-				ext.Type = ChatGroup
-			}
-			ext.Obj = channel
+			extractedChats[i] = tgExtractChannelData(channelsByID[peer.ChannelID], dialog.TopMessage)
 		default:
 			return nil, merry.Wrap(mtproto.WrongRespError(dialog.Peer))
 		}
-		extractedChats[i] = ext
 	}
 	return extractedChats, nil
+}
+func tgExtractUserData(user mtproto.TL_user, lastMessageID int32) *Chat {
+	return &Chat{
+		ID:            user.ID,
+		Title:         strings.TrimSpace(user.FirstName + " " + user.LastName),
+		Username:      user.Username,
+		Type:          ChatUser,
+		Obj:           user,
+		LastMessageID: lastMessageID,
+	}
+}
+func tgExtractChatData(chat mtproto.TL_chat, lastMessageID int32) *Chat {
+	return &Chat{
+		ID:            chat.ID,
+		Title:         chat.Title,
+		Type:          ChatGroup,
+		Obj:           chat,
+		LastMessageID: lastMessageID,
+	}
+}
+func tgExtractChannelData(channel mtproto.TL_channel, lastMessageID int32) *Chat {
+	chatType := ChatChannel
+	if channel.Megagroup {
+		chatType = ChatGroup
+	}
+	return &Chat{
+		ID:            channel.ID,
+		Title:         channel.Title,
+		Username:      channel.Username,
+		Type:          chatType,
+		Obj:           channel,
+		LastMessageID: lastMessageID,
+	}
 }
 
 func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
@@ -273,6 +287,19 @@ func tgLoadAuths(tg *tgclient.TGClient) ([]mtproto.TL, error) {
 	return auths.Authorizations, nil
 }
 
+func tgMakeInputPeer(peerTL mtproto.TL) (mtproto.TL, error) {
+	switch peer := peerTL.(type) {
+	case mtproto.TL_user:
+		return mtproto.TL_inputPeerUser{UserID: peer.ID, AccessHash: peer.AccessHash}, nil
+	case mtproto.TL_chat:
+		return mtproto.TL_inputPeerChat{ChatID: peer.ID}, nil
+	case mtproto.TL_channel:
+		return mtproto.TL_inputPeerChannel{ChannelID: peer.ID, AccessHash: peer.AccessHash}, nil
+	default:
+		return nil, merry.Wrap(mtproto.WrongRespError(peerTL))
+	}
+}
+
 // Works in two modes:
 //  1. when recentOffset <= 0:
 //     requests `limit` messages newer than `lastMsgID`
@@ -281,16 +308,9 @@ func tgLoadAuths(tg *tgclient.TGClient) ([]mtproto.TL, error) {
 func tgLoadMessages(
 	tg *tgclient.TGClient, peerTL mtproto.TL, limit, lastMsgID, recentOffset int32,
 ) ([]mtproto.TL, []mtproto.TL, []mtproto.TL, error) {
-	var inputPeer mtproto.TL
-	switch peer := peerTL.(type) {
-	case mtproto.TL_user:
-		inputPeer = mtproto.TL_inputPeerUser{UserID: peer.ID, AccessHash: peer.AccessHash}
-	case mtproto.TL_chat:
-		inputPeer = mtproto.TL_inputPeerChat{ChatID: peer.ID}
-	case mtproto.TL_channel:
-		inputPeer = mtproto.TL_inputPeerChannel{ChannelID: peer.ID, AccessHash: peer.AccessHash}
-	default:
-		return nil, nil, nil, merry.Wrap(mtproto.WrongRespError(peerTL))
+	inputPeer, err := tgMakeInputPeer(peerTL)
+	if err != nil {
+		return nil, nil, nil, merry.Wrap(err)
 	}
 
 	params := mtproto.TL_messages_getHistory{
@@ -317,18 +337,76 @@ func tgLoadMessages(
 	}
 }
 
-func tgLoadStories(tg *tgclient.TGClient, peerTL mtproto.TL, limit, offsetID int32) ([]mtproto.TL, []mtproto.TL, []mtproto.TL, error) {
-	var inputPeer mtproto.TL
-	switch peer := peerTL.(type) {
-	case mtproto.TL_user:
-		inputPeer = mtproto.TL_inputPeerUser{UserID: peer.ID, AccessHash: peer.AccessHash}
-	case mtproto.TL_channel:
-		inputPeer = mtproto.TL_inputPeerChannel{ChannelID: peer.ID, AccessHash: peer.AccessHash}
-	default:
-		return nil, nil, nil, merry.Wrap(mtproto.WrongRespError(peerTL))
+func tgLoadMissingMessageMediaStory(tg *tgclient.TGClient, chat mtproto.TL, msgTL mtproto.TL) (mtproto.TL, error) {
+	if msg, ok := msgTL.(mtproto.TL_message); ok {
+		if media, ok := msg.Media.(mtproto.TL_messageMediaStory); ok {
+			if media.Story == nil {
+				chatInputPeer, err := tgMakeInputPeer(chat)
+				if err != nil {
+					return nil, merry.Wrap(err)
+				}
+
+				var inputPeer mtproto.TL
+				switch mediaPeer := media.Peer.(type) {
+				case mtproto.TL_peerUser:
+					inputPeer = mtproto.TL_inputPeerUserFromMessage{Peer: chatInputPeer, MsgID: msg.ID, UserID: mediaPeer.UserID}
+				case mtproto.TL_peerChannel:
+					inputPeer = mtproto.TL_inputPeerChannelFromMessage{Peer: chatInputPeer, MsgID: msg.ID, ChannelID: mediaPeer.ChannelID}
+				}
+
+				res := tg.SendSyncRetry(mtproto.TL_stories_getStoriesByID{
+					Peer: inputPeer,
+					ID:   []int32{media.ID},
+				}, time.Second, 0, 30*time.Second)
+				stories, ok := res.(mtproto.TL_stories_stories)
+				if !ok {
+					return nil, merry.Wrap(mtproto.WrongRespError(res))
+				}
+				if len(stories.Stories) == 0 {
+					return msgTL, nil //story is not available (expired/hidden/removed)
+				}
+				if len(stories.Stories) > 1 {
+					return nil, merry.Errorf("unexpected stories count: %d != 1", len(stories.Stories))
+				}
+
+				story, ok := stories.Stories[0].(mtproto.TL_storyItem)
+				if !ok {
+					return nil, merry.Wrap(mtproto.WrongRespError(res))
+				}
+				media.Story = story
+				msg.Media = media
+				return msg, nil
+			}
+		}
+	}
+	return msgTL, nil
+}
+
+func tgLoadPinnedStories(tg *tgclient.TGClient, peerTL mtproto.TL, limit, offsetID int32) ([]mtproto.TL, []mtproto.TL, []mtproto.TL, error) {
+	inputPeer, err := tgMakeInputPeer(peerTL)
+	if err != nil {
+		return nil, nil, nil, merry.Wrap(err)
 	}
 
 	res := tg.SendSyncRetry(mtproto.TL_stories_getPinnedStories{
+		Peer:     inputPeer,
+		OffsetID: offsetID,
+		Limit:    limit,
+	}, time.Second, 0, 5*60*time.Second)
+	stories, ok := res.(mtproto.TL_stories_stories)
+	if !ok {
+		return nil, nil, nil, merry.Wrap(mtproto.WrongRespError(res))
+	}
+	return stories.Stories, stories.Users, stories.Chats, nil
+}
+
+func tgLoadArchivedStories(tg *tgclient.TGClient, peerTL mtproto.TL, limit, offsetID int32) ([]mtproto.TL, []mtproto.TL, []mtproto.TL, error) {
+	inputPeer, err := tgMakeInputPeer(peerTL)
+	if err != nil {
+		return nil, nil, nil, merry.Wrap(err)
+	}
+
+	res := tg.SendSyncRetry(mtproto.TL_stories_getStoriesArchive{
 		Peer:     inputPeer,
 		OffsetID: offsetID,
 		Limit:    limit,
@@ -453,6 +531,15 @@ func tgFindMediaFileInfo(mediaTL mtproto.TL, ctxObjName string, ctxObjID int32) 
 			DcID:  doc.DcID,
 			FName: fname,
 		}, nil
+	case mtproto.TL_messageMediaStory:
+		if media.Story == nil {
+			return nil, nil
+		}
+		story, ok := media.Story.(mtproto.TL_storyItem)
+		if !ok {
+			return nil, merry.Errorf(mtproto.UnexpectedTL("photoSize", media.Story))
+		}
+		return tgFindMediaFileInfo(story.Media, ctxObjName, ctxObjID)
 	default:
 		return nil, nil
 	}
