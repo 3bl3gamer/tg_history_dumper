@@ -185,6 +185,102 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 	return nil
 }
 
+func loadAndSaveStories(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, config *Config) error {
+	chunkSize := int32(2)
+	lastSavedID, err := saver.GetLastStoryID(chat)
+	if err != nil {
+		return merry.Wrap(err)
+	}
+
+	// loading latest stories chunk to get the last ID (so we can load stories from oldest to newest until this ID)
+	latestStories, err := loadStoriesAndSaveRelated(tg, saver, chat, chunkSize, 0)
+	if err != nil {
+		return merry.Wrap(err)
+	}
+	if len(latestStories) == 0 {
+		return nil
+	}
+
+	// stories are sorted by ID from highest (most recent) to lowest
+	latestChunkFirstID, err := tgGetStoryID(latestStories[len(latestStories)-1])
+	if err != nil {
+		return merry.Wrap(err)
+	}
+
+	// loading and saving stories between last saved and latest loaded
+	if lastSavedID+1 < latestChunkFirstID {
+		for lowerOffsetID := lastSavedID + 1; lowerOffsetID < latestChunkFirstID; lowerOffsetID += chunkSize {
+			offsetID := lowerOffsetID + chunkSize
+			stories, err := loadStoriesAndSaveRelated(tg, saver, chat, chunkSize, offsetID)
+			if err != nil {
+				return merry.Wrap(err)
+			}
+
+			newStoriesMaxID := int32(0)
+			newStories := make([]mtproto.TL, 0, len(latestStories))
+			for _, storyTL := range stories {
+				storyID, err := tgGetStoryID(storyTL)
+				if err != nil {
+					return merry.Wrap(err)
+				}
+				if storyID > lastSavedID {
+					newStories = append(newStories, storyTL)
+				}
+				if storyID > newStoriesMaxID {
+					newStoriesMaxID = storyID
+				}
+			}
+
+			if err := saver.SaveStories(chat, newStories); err != nil {
+				return merry.Wrap(err)
+			}
+			lastSavedID = newStoriesMaxID
+		}
+	}
+
+	// saving latest loaded
+	{
+		newStories := make([]mtproto.TL, 0, len(latestStories))
+		for _, storyTL := range latestStories {
+			storyID, err := tgGetStoryID(storyTL)
+			if err != nil {
+				return merry.Wrap(err)
+			}
+			if storyID > lastSavedID {
+				newStories = append(newStories, storyTL)
+			}
+		}
+		if err := saver.SaveStories(chat, newStories); err != nil {
+			return merry.Wrap(err)
+		}
+	}
+
+	return nil
+}
+func loadStoriesAndSaveRelated(tg *tgclient.TGClient, saver HistorySaver, chat *Chat, limit, offsetID int32) ([]mtproto.TL, error) {
+	stories, users, chats, err := tgLoadStories(tg, chat.Obj, limit, offsetID)
+	if err != nil {
+		return nil, merry.Wrap(err)
+	}
+	if err := saver.SaveRelatedUsers(users); err != nil {
+		return nil, merry.Wrap(err)
+	}
+	if err := saver.SaveRelatedChats(chats); err != nil {
+		return nil, merry.Wrap(err)
+	}
+	return stories, nil
+}
+
+func mayHaveStories(chat *Chat) bool {
+	if _, ok := chat.Obj.(mtproto.TL_user); ok {
+		return true
+	}
+	if channel, ok := chat.Obj.(mtproto.TL_channel); ok && !channel.Megagroup {
+		return true
+	}
+	return false
+}
+
 func mustOpen(fpath string) *os.File {
 	file, err := os.OpenFile(fpath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
@@ -262,6 +358,7 @@ func dump() error {
 	overrideStrParam(&config.Socks5ProxyPassword, sosks5password)
 	if *chatTitle != "" {
 		config.History = ConfigChatFilterAttrs{Title: chatTitle}
+		config.Stories = ConfigChatFilterAttrs{Title: chatTitle}
 	}
 	overrideStrParam(&config.SessionFilePath, sessionFPath)
 	overrideStrParam(&config.OutDirPath, outDirPath)
@@ -282,9 +379,9 @@ func dump() error {
 	}
 
 	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
-	saver.SetFileRequestCallback(func(chat *Chat, file *TGFileInfo, msgID int32) error {
+	saver.SetFileRequestCallback(func(chat *Chat, file *TGFileInfo, msgID int32, mediaSource MediaFileSource) error {
 		if config.Media.Match(chat, file) == MatchTrue {
-			fpath, err := saver.MessageFileFPath(chat, msgID, file.FName)
+			fpath, err := saver.MessageFileFPath(chat, msgID, file.FName, mediaSource)
 			if err != nil {
 				return merry.Wrap(err)
 			}
@@ -336,24 +433,27 @@ func dump() error {
 			log.Info(colf("%-7s %10d %s  %s (%s)", chat.Type, chat.ID, historyLimitStr, title, chat.Username))
 		}
 	} else {
-		// saveing user info
+		// saving user info
 		if config.DoAccountDump == "write" {
-			saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
-			saver.SaveAccount(*me)
+			if err := saver.SaveAccount(*me); err != nil {
+				return merry.Wrap(err)
+			}
 			log.Info("User Account Info Saved")
 		}
 
-		// saveing contacts
+		// saving contacts
 		if config.DoContactsDump == "write" {
 			contacts, err := tgLoadContacts(tg)
 			if err != nil {
 				return merry.Wrap(err)
 			}
-			saver.SaveContacts(contacts.Users)
+			if err := saver.SaveContacts(contacts.Users); err != nil {
+				return merry.Wrap(err)
+			}
 			log.Info("Contacts Saved")
 		}
 
-		// saveing sessions
+		// saving sessions
 		if config.DoSessionsDump == "write" {
 			authList, err := tgLoadAuths(tg)
 			if err != nil {
@@ -363,7 +463,7 @@ func dump() error {
 			log.Info("Active Sessions Saved")
 		}
 
-		// saving messages
+		// saving messages and stories
 		if err := saveChatsAsRelated(chats, saver); err != nil {
 			return merry.Wrap(err)
 		}
@@ -373,6 +473,13 @@ func dump() error {
 				log.Info("saving messages from: %s (%s) #%d %v",
 					green(chat.Title), chat.Username, chat.ID, chat.Type)
 				if err := loadAndSaveMessages(tg, chat, saver, config); err != nil {
+					return merry.Wrap(err)
+				}
+			}
+			if mayHaveStories(chat) && config.Stories.Match(chat, nil) == MatchTrue {
+				log.Info("saving stories from: %s (%s) #%d %v",
+					green(chat.Title), chat.Username, chat.ID, chat.Type)
+				if err := loadAndSaveStories(tg, chat, saver, config); err != nil {
 					return merry.Wrap(err)
 				}
 			}

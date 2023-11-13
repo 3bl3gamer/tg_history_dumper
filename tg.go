@@ -116,6 +116,17 @@ func tgConnect(config *Config, logHandler *LogHandler) (*tgclient.TGClient, *mtp
 	return tg, &me, nil
 }
 
+func tgGetMessageID(messageTL mtproto.TL) (int32, error) {
+	switch message := messageTL.(type) {
+	case mtproto.TL_message:
+		return message.ID, nil
+	case mtproto.TL_messageService:
+		return message.ID, nil
+	default:
+		return 0, merry.Wrap(mtproto.WrongRespError(messageTL))
+	}
+}
+
 func tgGetMessageStamp(msgTL mtproto.TL) (int32, error) {
 	switch msg := msgTL.(type) {
 	case mtproto.TL_message:
@@ -124,6 +135,19 @@ func tgGetMessageStamp(msgTL mtproto.TL) (int32, error) {
 		return msg.Date, nil
 	default:
 		return 0, merry.Wrap(mtproto.WrongRespError(msg))
+	}
+}
+
+func tgGetStoryID(storyTL mtproto.TL) (int32, error) {
+	switch story := storyTL.(type) {
+	case mtproto.TL_storyItemDeleted:
+		return story.ID, nil
+	case mtproto.TL_storyItemSkipped:
+		return story.ID, nil
+	case mtproto.TL_storyItem:
+		return story.ID, nil
+	default:
+		return 0, merry.Wrap(mtproto.WrongRespError(story))
 	}
 }
 
@@ -293,6 +317,29 @@ func tgLoadMessages(
 	}
 }
 
+func tgLoadStories(tg *tgclient.TGClient, peerTL mtproto.TL, limit, offsetID int32) ([]mtproto.TL, []mtproto.TL, []mtproto.TL, error) {
+	var inputPeer mtproto.TL
+	switch peer := peerTL.(type) {
+	case mtproto.TL_user:
+		inputPeer = mtproto.TL_inputPeerUser{UserID: peer.ID, AccessHash: peer.AccessHash}
+	case mtproto.TL_channel:
+		inputPeer = mtproto.TL_inputPeerChannel{ChannelID: peer.ID, AccessHash: peer.AccessHash}
+	default:
+		return nil, nil, nil, merry.Wrap(mtproto.WrongRespError(peerTL))
+	}
+
+	res := tg.SendSyncRetry(mtproto.TL_stories_getPinnedStories{
+		Peer:     inputPeer,
+		OffsetID: offsetID,
+		Limit:    limit,
+	}, time.Second, 0, 30*time.Second)
+	stories, ok := res.(mtproto.TL_stories_stories)
+	if !ok {
+		return nil, nil, nil, merry.Wrap(mtproto.WrongRespError(res))
+	}
+	return stories.Stories, stories.Users, stories.Chats, nil
+}
+
 func tgObjToMap(obj mtproto.TL) map[string]interface{} {
 	v := reflect.ValueOf(obj)
 	if v.Kind() == reflect.Ptr {
@@ -364,23 +411,19 @@ func getBestPhotoSize(photo mtproto.TL_photo) (err error, sizeType string, sizeB
 	return
 }
 
-func tgFindMessageMediaFileInfo(msgTL mtproto.TL) (error, *TGFileInfo) {
-	msg, ok := msgTL.(mtproto.TL_message)
-	if !ok {
-		return nil, nil
-	}
-	switch media := msg.Media.(type) {
+func tgFindMediaFileInfo(mediaTL mtproto.TL, ctxObjName string, ctxObjID int32) (*TGFileInfo, error) {
+	switch media := mediaTL.(type) {
 	case mtproto.TL_messageMediaPhoto:
 		if _, ok := media.Photo.(mtproto.TL_photoEmpty); ok {
-			log.Error(nil, "got 'photoEmpty' in media of message #%d", msg.ID)
+			log.Error(nil, "got 'photoEmpty' in media of %s #%d", ctxObjName, ctxObjID)
 			return nil, nil
 		}
 		photo := media.Photo.(mtproto.TL_photo)
 		err, sizeType, sizeBytes := getBestPhotoSize(photo)
 		if err != nil {
-			return merry.Prependf(err, "image size of message #%d", msg.ID), nil
+			return nil, merry.Prependf(err, "image size of %s #%d", ctxObjName, ctxObjID)
 		}
-		return nil, &TGFileInfo{
+		return &TGFileInfo{
 			InputLocation: mtproto.TL_inputPhotoFileLocation{
 				ID:            photo.ID,
 				AccessHash:    photo.AccessHash,
@@ -390,7 +433,7 @@ func tgFindMessageMediaFileInfo(msgTL mtproto.TL) (error, *TGFileInfo) {
 			Size:  int64(sizeBytes),
 			DcID:  photo.DcID,
 			FName: "photo.jpg",
-		}
+		}, nil
 	case mtproto.TL_messageMediaDocument:
 		doc := media.Document.(mtproto.TL_document)
 		fname := ""
@@ -400,7 +443,7 @@ func tgFindMessageMediaFileInfo(msgTL mtproto.TL) (error, *TGFileInfo) {
 				break
 			}
 		}
-		return nil, &TGFileInfo{
+		return &TGFileInfo{
 			InputLocation: mtproto.TL_inputDocumentFileLocation{
 				ID:            doc.ID,
 				AccessHash:    doc.AccessHash,
@@ -409,10 +452,26 @@ func tgFindMessageMediaFileInfo(msgTL mtproto.TL) (error, *TGFileInfo) {
 			Size:  doc.Size,
 			DcID:  doc.DcID,
 			FName: fname,
-		}
+		}, nil
 	default:
 		return nil, nil
 	}
+}
+
+func tgFindMessageMediaFileInfo(msgTL mtproto.TL) (*TGFileInfo, error) {
+	msg, ok := msgTL.(mtproto.TL_message)
+	if !ok {
+		return nil, nil
+	}
+	return tgFindMediaFileInfo(msg.Media, "message", msg.ID)
+}
+
+func tgFindStoryMediaFileInfo(storyTL mtproto.TL) (*TGFileInfo, error) {
+	story, ok := storyTL.(mtproto.TL_storyItem)
+	if !ok {
+		return nil, nil
+	}
+	return tgFindMediaFileInfo(story.Media, "story", story.ID)
 }
 
 /*
@@ -451,14 +510,3 @@ func tgGetFileRefs(obj mtproto.TL) []FileRefsItem {
 	return res
 }
 */
-
-func tgGetMessageID(messageTL mtproto.TL) (int32, error) {
-	switch message := messageTL.(type) {
-	case mtproto.TL_message:
-		return message.ID, nil
-	case mtproto.TL_messageService:
-		return message.ID, nil
-	default:
-		return 0, merry.Wrap(mtproto.WrongRespError(messageTL))
-	}
-}
