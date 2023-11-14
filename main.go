@@ -208,7 +208,7 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 }
 
 func loadAndSaveStories(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, tryLoadArchived bool) error {
-	chunkSize := int32(20) //TODO: 100 is available?
+	chunkSize := int32(50) //TODO: 100 is available?
 	lastSavedID, err := saver.GetLastStoryID(chat)
 	if err != nil {
 		return merry.Wrap(err)
