@@ -340,6 +340,7 @@ func dump() error {
 	sessionFPath := flag.String("session", "", "session file path, overrides config.session_file_path")
 	outDirPath := flag.String("out", "", "output directory path, overriders config.out_dir_path")
 	chatTitle := flag.String("chat", "", "title of the chat to dump, overrides config.history")
+	skipStories := flag.Bool("skip-stories", false, "do not dump sotries, overrides config.stories")
 	doListChats := flag.Bool("list-chats", false, "list all available chats")
 	logDebug := flag.Bool("debug", false, "show debug log messages")
 	tgLogDebug := flag.Bool("debug-tg", false, "show debug TGClient log messages")
@@ -517,7 +518,7 @@ func dump() error {
 				}
 			}
 			// stories
-			if mayHaveStories(chat) && config.Stories.Match(chat, nil) == MatchTrue {
+			if !*skipStories && mayHaveStories(chat) && config.Stories.Match(chat, nil) == MatchTrue {
 				log.Info("saving stories from: %s (%s) #%d %v",
 					green(chat.Title), chat.Username, chat.ID, chat.Type)
 				tryLoadArchived := chat.ID == me.ID || chat.Type == ChatChannel

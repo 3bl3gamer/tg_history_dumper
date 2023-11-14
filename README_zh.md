@@ -58,8 +58,8 @@ go build
         {"exclude": {"type": "channel"}},
         {"username": "my_channel"}
     ],
+    "stories": "none",
     "media": [
-        "none",
         {"type": "user"},
         {"username": "my_channel"}
     ],
@@ -77,14 +77,22 @@ go build
 * `session_file_path` — (可选, 默认 `tg.session`) session 文件的位置（这个文件是为了让你下次不必重新登录）
 * `out_dir_path` — (可选, 默认 `history`) 存储历史消息和媒体文件的文件夹。
 * `history` — (可选, 默认 `{"type": "user"}`) 聊天过滤[规则](#规则)。
-* `media` — (可选, 默认 `"none"`) 聊天过滤[规则](#规则)，仅在符合`history`规则的聊天中生效。
+* `stories` — (optional, default is `"none"`) [stories](#stories) filtering [rules](#rules);
+* `media` — (可选, 默认 `"none"`) 聊天过滤[规则](#规则)，仅在符合`history`规则的聊天中生效。 and to stories matched to `stories` rules;
 * `history_limit` — (optional, default is `{}`) new chat [history limiting](#history-limits) rules;
-* `dump_account` — (optional, default is `"off"`, use `"write"` to enable dump) dumps basic account information to file, overrides config.dump_account, does not apply when `-list-chats` enabled;
-* `dump_contacts` — (optional, default is `"off"`, use `"write"` to enable dump) dumps contacts information to file, overrides config.dump_contacts, does not apply when `-list-chats` enabled;
-* `dump_sessions` — (optional, default is `"off"`, use `"write"` to enable dump) dumps active sessions to file, overrides config.dump_sessions, does not apply when `-list-chats` enabled.
+* `dump_account` — (optional, default is `"off"`, use `"write"` to enable dump) dumps basic account information to file, does not apply when `-list-chats` enabled;
+* `dump_contacts` — (optional, default is `"off"`, use `"write"` to enable dump) dumps contacts information to file, does not apply when `-list-chats` enabled;
+* `dump_sessions` — (optional, default is `"off"`, use `"write"` to enable dump) dumps active sessions to file, does not apply when `-list-chats` enabled.
 
 如果配置中有了 `app_id` 和 `app_hash`，那么此工具就不会使用命令行参数中的那个了，你也没必要在命令行参数中再附带这两个参数。
 
+### Stories
+
+Currently, stories are saved from user's/channel's public "posts" tab and (if accessible) from stories archive. Recent stories with the "Post to My Profile" switch turned off will not be saved.
+
+Stories dumping is relatively slow, so there is a `-skip-stories` flag to bypass stories saving as if `config.stories` was set to `"none"`.
+
+[History limits](#history-limits) do not affect stories.
 
 ### History limits
 
@@ -233,31 +241,33 @@ For example, this config sets limit to 5000 for groups, 10000 for channels, dial
 $ tg_history_dumper --help
 Usage of tg_history_dumper:
   -app-hash string
-      app hash
+        app hash
   -app-id int
-      app id
+        app id
   -chat string
-      被备份的聊天的标题，将会覆盖 config.history
+        被备份的聊天的标题，将会覆盖 config.history
   -config string
-      配置文件的路径 (默认 "config.json")
+        配置文件的路径 (默认 "config.json")
   -debug
-      展示 debug 相关的日志信息。
+        展示 debug 相关的日志信息。
   -debug-tg
-      展示 debug TGClient 的日志信息。
+        展示 debug TGClient 的日志信息。
   -dump-account string
-        enable basic user information dump, use 'write' to enable dump, overriders config.dump_account
+        enable basic user information dump, use 'write' to enable dump, overrides config.dump_account
   -dump-contacts string
-        enable contacts dump, use 'write' to enable dump, overriders config.dump_contacts
+        enable contacts dump, use 'write' to enable dump, overrides config.dump_contacts
   -dump-sessions string
-        enable active sessions dump, use 'write' to enable dump, overriders config.dump_sessions
+        enable active sessions dump, use 'write' to enable dump, overrides config.dump_sessions
   -list-chats
-      列出来所有可用的聊天
+        列出来所有可用的聊天
   -out string
-      备份目录的路径，将会覆盖 config.out_dir_path
+        备份目录的路径，将会覆盖 config.out_dir_path
   -session string
-      session 文件路径，将会覆盖 config.session_file_path
+        session 文件路径，将会覆盖 config.session_file_path
+  -skip-stories
+        do not dump sotries, overrides config.stories
   -socks5 string
-      socks5 配置，包括 地址:端口，将会覆盖 config.socks5_proxy_addr
+        socks5 配置，包括 地址:端口，将会覆盖 config.socks5_proxy_addr
   -socks5-password string
         socks5 proxy password, overrides config.socks5_proxy_password
   -socks5-user string
@@ -266,7 +276,7 @@ Usage of tg_history_dumper:
 
 ## 格式
 
-## 消息
+### 消息
 
 所有的消息将会以 JSON 数据存储在 `history/<id>_<title>`，此工具将会只会通过 id 来搜索文件夹，并且当 `title` 变化时重命名文件夹。
 
@@ -278,7 +288,7 @@ Usage of tg_history_dumper:
 
 （为了方便阅读，把其他很多属性都删除掉了）
 
-## Peers
+### Peers
 
 Related users and chats are saved to `history/users` and `history/chats` respectively. Each file is JSON Lines with some basic user/chat data like id, usrname, first/lastname, title, etc.
 
