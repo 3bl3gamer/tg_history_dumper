@@ -23,10 +23,10 @@ const (
 
 type UserData struct {
 	ID          int64
-	Username    string
-	FirstName   string
-	LastName    string
-	PhoneNumber string
+	Username    *string
+	FirstName   *string
+	LastName    *string
+	PhoneNumber *string
 	IsBot       bool
 	IsFake      bool
 	IsScam      bool
@@ -41,33 +41,34 @@ func NewUserDataFromTG(tgUser mtproto.TL_user, oldUser *UserData) *UserData {
 	}
 	return &UserData{
 		ID:          tgUser.ID,
-		FirstName:   chooseOpt(oldUser.FirstName, tgUser.FirstName, tgUser.Flags, 1),
-		LastName:    chooseOpt(oldUser.LastName, tgUser.LastName, tgUser.Flags, 2),
-		Username:    chooseOpt(oldUser.Username, tgUser.Username, tgUser.Flags, 3),
-		PhoneNumber: chooseOpt(oldUser.PhoneNumber, tgUser.Phone, tgUser.Flags, 4),
-		IsBot:       chooseOpt(oldUser.IsBot, tgUser.Bot, tgUser.Flags, 14),
-		IsFake:      chooseOpt(oldUser.IsFake, tgUser.Fake, tgUser.Flags, 26),
-		IsScam:      chooseOpt(oldUser.IsScam, tgUser.Scam, tgUser.Flags, 24),
-		IsVerified:  chooseOpt(oldUser.IsVerified, tgUser.Verified, tgUser.Flags, 17),
-		IsPremium:   chooseOpt(oldUser.IsPremium, tgUser.Premium, tgUser.Flags, 28),
+		FirstName:   chooseOpt(oldUser.FirstName, tgUser.FirstName),
+		LastName:    chooseOpt(oldUser.LastName, tgUser.LastName),
+		Username:    chooseOpt(oldUser.Username, tgUser.Username),
+		PhoneNumber: chooseOpt(oldUser.PhoneNumber, tgUser.Phone),
+		IsBot:       tgUser.Bot,
+		IsFake:      tgUser.Fake,
+		IsScam:      tgUser.Scam,
+		IsVerified:  tgUser.Verified,
+		IsPremium:   tgUser.Premium,
 		UpdatedAt:   time.Now(),
 	}
 }
 
 func (u *UserData) IsUpdatedBy(other *mtproto.TL_user) bool {
-	return isUpdatedByOpt(u.FirstName, other.FirstName, other.Flags, 1) ||
-		isUpdatedByOpt(u.LastName, other.LastName, other.Flags, 2) ||
-		isUpdatedByOpt(u.Username, other.Username, other.Flags, 3) ||
-		isUpdatedByOpt(u.PhoneNumber, other.Phone, other.Flags, 4) ||
-		isUpdatedByOpt(u.IsFake, other.Fake, other.Flags, 26) ||
-		isUpdatedByOpt(u.IsScam, other.Scam, other.Flags, 24) ||
-		isUpdatedByOpt(u.IsVerified, other.Verified, other.Flags, 17) ||
-		isUpdatedByOpt(u.IsPremium, other.Premium, other.Flags, 28)
+	return isUpdatedByOpt(u.FirstName, other.FirstName) ||
+		isUpdatedByOpt(u.LastName, other.LastName) ||
+		isUpdatedByOpt(u.Username, other.Username) ||
+		isUpdatedByOpt(u.PhoneNumber, other.Phone) ||
+		u.IsBot != other.Bot ||
+		u.IsFake != other.Fake ||
+		u.IsScam != other.Scam ||
+		u.IsVerified != other.Verified ||
+		u.IsPremium != other.Premium
 }
 
 type ChatData struct {
 	ID        int64
-	Username  string
+	Username  *string
 	Title     string
 	IsChannel bool
 	UpdatedAt time.Time
@@ -79,14 +80,12 @@ func (c *ChatData) IsUpdatedBy(other *ChatData) bool {
 
 type SaveFileCallbackFunc func(*Chat, *TGFileInfo, int32, MediaFileSource) error
 
-func isUpdatedByOpt[T comparable](old, new T, flags, flagBit int32) bool {
-	isSet := (flags & (1 << flagBit)) != 0
-	return isSet && old != new
+func isUpdatedByOpt[T comparable](old, new *T) bool {
+	return new != nil && (old == nil || *new != *old)
 }
 
-func chooseOpt[T any](old, new T, flags, flagBit int32) T {
-	isSet := (flags & (1 << flagBit)) != 0
-	if isSet {
+func chooseOpt[T any](old, new *T) *T {
+	if new != nil {
 		return new
 	}
 	return old
@@ -440,7 +439,7 @@ func (s JSONFilesHistorySaver) SaveContacts(contacts []mtproto.TL) error {
 	return nil
 }
 
-func (s JSONFilesHistorySaver) SaveAuths(auths []mtproto.TL) error {
+func (s JSONFilesHistorySaver) SaveAuths(auths []mtproto.TL_authorization) error {
 	file, err := s.openAndTruncate(s.authsFPath())
 	if err != nil {
 		return merry.Wrap(err)

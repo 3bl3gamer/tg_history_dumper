@@ -111,8 +111,11 @@ func tgConnect(config *Config, logHandler *LogHandler) (*tgclient.TGClient, *mtp
 	me := users[0].(mtproto.TL_user)
 
 	greenBoldf := color.New(color.FgGreen, color.Bold).SprintfFunc()
+	firstName := mtproto.DerefOr(me.FirstName, "")
+	lastName := mtproto.DerefOr(me.LastName, "")
+	username := mtproto.DerefOr(me.Username, "")
 	log.Info("logged in as %s #%d",
-		greenBoldf("%s (%s)", strings.TrimSpace(me.FirstName+" "+me.LastName), me.Username), me.ID)
+		greenBoldf("%s (%s)", strings.TrimSpace(firstName+" "+lastName), username), me.ID)
 	return tg, &me, nil
 }
 
@@ -163,7 +166,7 @@ func tgExtractDialogsData(dialogs []mtproto.TL, chats []mtproto.TL, users []mtpr
 		case mtproto.TL_channel:
 			channelsByID[chat.ID] = chat
 		case mtproto.TL_channelForbidden:
-			channelsByID[chat.ID] = mtproto.TL_channel{ID: chat.ID, Title: chat.Title, AccessHash: chat.AccessHash, Megagroup: chat.Megagroup}
+			channelsByID[chat.ID] = mtproto.TL_channel{ID: chat.ID, Title: chat.Title, AccessHash: &chat.AccessHash, Megagroup: chat.Megagroup}
 		default:
 			return nil, merry.Wrap(mtproto.WrongRespError(chatTL))
 		}
@@ -192,8 +195,8 @@ func tgExtractDialogsData(dialogs []mtproto.TL, chats []mtproto.TL, users []mtpr
 func tgExtractUserData(user mtproto.TL_user, lastMessageID int32) *Chat {
 	return &Chat{
 		ID:            user.ID,
-		Title:         strings.TrimSpace(user.FirstName + " " + user.LastName),
-		Username:      user.Username,
+		Title:         strings.TrimSpace(mtproto.DerefOr(user.FirstName, "") + " " + mtproto.DerefOr(user.LastName, "")),
+		Username:      mtproto.DerefOr(user.Username, ""),
 		Type:          ChatUser,
 		Obj:           user,
 		LastMessageID: lastMessageID,
@@ -216,7 +219,7 @@ func tgExtractChannelData(channel mtproto.TL_channel, lastMessageID int32) *Chat
 	return &Chat{
 		ID:            channel.ID,
 		Title:         channel.Title,
-		Username:      channel.Username,
+		Username:      mtproto.DerefOr(channel.Username, ""),
 		Type:          chatType,
 		Obj:           channel,
 		LastMessageID: lastMessageID,
@@ -277,7 +280,7 @@ func tgLoadContacts(tg *tgclient.TGClient) (*mtproto.TL_contacts_contacts, error
 	return &contacts, nil
 }
 
-func tgLoadAuths(tg *tgclient.TGClient) ([]mtproto.TL, error) {
+func tgLoadAuths(tg *tgclient.TGClient) ([]mtproto.TL_authorization, error) {
 	res := tg.SendSyncRetry(mtproto.TL_account_getAuthorizations{}, time.Second, 0, 30*time.Second)
 
 	auths, ok := res.(mtproto.TL_account_authorizations)
@@ -290,11 +293,17 @@ func tgLoadAuths(tg *tgclient.TGClient) ([]mtproto.TL, error) {
 func tgMakeInputPeer(peerTL mtproto.TL) (mtproto.TL, error) {
 	switch peer := peerTL.(type) {
 	case mtproto.TL_user:
-		return mtproto.TL_inputPeerUser{UserID: peer.ID, AccessHash: peer.AccessHash}, nil
+		if peer.AccessHash == nil {
+			return nil, merry.Errorf("user #%d has no access_hash", peer.ID)
+		}
+		return mtproto.TL_inputPeerUser{UserID: peer.ID, AccessHash: *peer.AccessHash}, nil
 	case mtproto.TL_chat:
 		return mtproto.TL_inputPeerChat{ChatID: peer.ID}, nil
 	case mtproto.TL_channel:
-		return mtproto.TL_inputPeerChannel{ChannelID: peer.ID, AccessHash: peer.AccessHash}, nil
+		if peer.AccessHash == nil {
+			return nil, merry.Errorf("channel #%d has no access_hash", peer.ID)
+		}
+		return mtproto.TL_inputPeerChannel{ChannelID: peer.ID, AccessHash: *peer.AccessHash}, nil
 	default:
 		return nil, merry.Wrap(mtproto.WrongRespError(peerTL))
 	}
@@ -421,8 +430,12 @@ func tgLoadArchivedStories(tg *tgclient.TGClient, peerTL mtproto.TL, limit, offs
 func tgObjToMap(obj mtproto.TL) map[string]interface{} {
 	v := reflect.ValueOf(obj)
 	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return nil
+		}
 		v = v.Elem()
 	}
+
 	typ := v.Type()
 	res := make(map[string]interface{})
 	for i := 0; i < typ.NumField(); i++ {
@@ -450,7 +463,7 @@ func tgObjToMap(obj mtproto.TL) map[string]interface{} {
 
 type TGFileInfo struct {
 	InputLocation mtproto.TL
-	DcID          int32
+	DCID          int32
 	Size          int64
 	FName         string
 }
@@ -509,7 +522,7 @@ func tgFindMediaFileInfo(mediaTL mtproto.TL, ctxObjName string, ctxObjID int32) 
 				ThumbSize:     sizeType,
 			},
 			Size:  int64(sizeBytes),
-			DcID:  photo.DcID,
+			DCID:  photo.DCID,
 			FName: "photo.jpg",
 		}, nil
 	case mtproto.TL_messageMediaDocument:
@@ -528,7 +541,7 @@ func tgFindMediaFileInfo(mediaTL mtproto.TL, ctxObjName string, ctxObjID int32) 
 				FileReference: doc.FileReference,
 			},
 			Size:  doc.Size,
-			DcID:  doc.DcID,
+			DCID:  doc.DCID,
 			FName: fname,
 		}, nil
 	case mtproto.TL_messageMediaStory:

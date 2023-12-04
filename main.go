@@ -425,7 +425,7 @@ func dump() error {
 			_, err = os.Stat(fpath)
 			if os.IsNotExist(err) {
 				log.Info("downloading file to %s", fpath)
-				_, err := tg.DownloadFileToPath(fpath, file.InputLocation, file.DcID, int64(file.Size), NewFileProgressLogger())
+				_, err := tg.DownloadFileToPath(fpath, file.InputLocation, file.DCID, int64(file.Size), NewFileProgressLogger())
 				if isBrokenFileError(err) {
 					log.Error(nil, "in chat %d %s (%s): wrong file: %s", chat.ID, chat.Title, chat.Username, fpath)
 					err = nil
