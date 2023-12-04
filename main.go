@@ -176,8 +176,10 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 				}
 			}
 
+			// TODO: it's better to request message stories directly before message saving (same as files)
+			//       so stories will not be re-fetched after restart
 			for i, msg := range newMessages {
-				newMsg, err := tgLoadMissingMessageMediaStory(tg, chat.Obj, msg)
+				newMsg, err := tgLoadMissingMessageMediaStory(tg, chat.Obj, msg, chats)
 				if err != nil {
 					return merry.Wrap(err)
 				}
@@ -215,9 +217,10 @@ func loadAndSaveStories(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, t
 	}
 
 	// latestStories:
-	//   loading latest stories chunk to get the last ID (so we can load stories from oldest to newest until this ID)
+	//   Loading latest stories chunk to get the last ID (so we can load stories from oldest to newest until this ID).
+	//   (user/channel).StoriesMaxID and TL_stories_getPeerMaxIDs will be non-zero only if stories were posted recently.
 	// archivedAreAvailable:
-	//   checking if archived stories are available, if not, loading only pinned
+	//   Checking if archived stories are available, if not, loading only pinned.
 	var latestStories []mtproto.TL
 	archivedAreAvailable := false
 	if tryLoadArchived {
@@ -478,7 +481,7 @@ func dump() error {
 			if err := saver.SaveAccount(*me); err != nil {
 				return merry.Wrap(err)
 			}
-			log.Info("User Account Info Saved")
+			log.Info("user Account Info Saved")
 		}
 
 		// saving contacts
@@ -490,7 +493,7 @@ func dump() error {
 			if err := saver.SaveContacts(contacts.Users); err != nil {
 				return merry.Wrap(err)
 			}
-			log.Info("Contacts Saved")
+			log.Info("contacts Saved")
 		}
 
 		// saving sessions
@@ -500,7 +503,7 @@ func dump() error {
 				return merry.Wrap(err)
 			}
 			saver.SaveAuths(authList)
-			log.Info("Active Sessions Saved")
+			log.Info("active Sessions Saved")
 		}
 
 		// saving messages and stories

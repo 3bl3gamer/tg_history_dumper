@@ -32,63 +32,64 @@ type UserData struct {
 	IsScam      bool
 	IsVerified  bool
 	IsPremium   bool
+	IsDeleted   bool
 	UpdatedAt   time.Time
 }
 
-func NewUserDataFromTG(tgUser mtproto.TL_user, oldUser *UserData) *UserData {
-	if oldUser == nil {
-		oldUser = &UserData{}
-	}
+func NewUserDataFromTG(tgUser mtproto.TL_user) *UserData {
 	return &UserData{
 		ID:          tgUser.ID,
-		FirstName:   chooseOpt(oldUser.FirstName, tgUser.FirstName),
-		LastName:    chooseOpt(oldUser.LastName, tgUser.LastName),
-		Username:    chooseOpt(oldUser.Username, tgUser.Username),
-		PhoneNumber: chooseOpt(oldUser.PhoneNumber, tgUser.Phone),
+		FirstName:   tgUser.FirstName,
+		LastName:    tgUser.LastName,
+		Username:    tgUser.Username,
+		PhoneNumber: tgUser.Phone,
 		IsBot:       tgUser.Bot,
 		IsFake:      tgUser.Fake,
 		IsScam:      tgUser.Scam,
 		IsVerified:  tgUser.Verified,
 		IsPremium:   tgUser.Premium,
+		IsDeleted:   tgUser.Deleted,
 		UpdatedAt:   time.Now(),
 	}
 }
 
 func (u *UserData) IsUpdatedBy(other *mtproto.TL_user) bool {
-	return isUpdatedByOpt(u.FirstName, other.FirstName) ||
-		isUpdatedByOpt(u.LastName, other.LastName) ||
-		isUpdatedByOpt(u.Username, other.Username) ||
-		isUpdatedByOpt(u.PhoneNumber, other.Phone) ||
+	if other.Min {
+		return false //min constructor does not update old data (https://core.telegram.org/api/min)
+	}
+	return !equalsOpt(u.FirstName, other.FirstName) ||
+		!equalsOpt(u.LastName, other.LastName) ||
+		!equalsOpt(u.Username, other.Username) ||
+		!equalsOpt(u.PhoneNumber, other.Phone) ||
 		u.IsBot != other.Bot ||
 		u.IsFake != other.Fake ||
 		u.IsScam != other.Scam ||
 		u.IsVerified != other.Verified ||
-		u.IsPremium != other.Premium
+		u.IsPremium != other.Premium ||
+		u.IsDeleted != other.Deleted
 }
 
 type ChatData struct {
 	ID        int64
 	Username  *string
 	Title     string
-	IsChannel bool
+	IsChannel *bool
 	UpdatedAt time.Time
 }
 
-func (c *ChatData) IsUpdatedBy(other *ChatData) bool {
-	return c.Username != other.Username || c.Title != other.Title
+func (c *ChatData) IsUpdatedBy(other *ChatData, otherIsMin bool) bool {
+	if otherIsMin {
+		return false
+	}
+	return !equalsOpt(c.Username, other.Username) ||
+		!equalsOpt(c.IsChannel, other.IsChannel) ||
+		c.Title != other.Title
 }
 
 type SaveFileCallbackFunc func(*Chat, *TGFileInfo, int32, MediaFileSource) error
 
-func isUpdatedByOpt[T comparable](old, new *T) bool {
-	return new != nil && (old == nil || *new != *old)
-}
-
-func chooseOpt[T any](old, new *T) *T {
-	if new != nil {
-		return new
-	}
-	return old
+func equalsOpt[T comparable](old, new *T) bool {
+	return new == old || (old != nil && new != nil && *new == *old)
 }
 
 func fnameIDPrefix(id int64) string {
@@ -297,7 +298,7 @@ func (s JSONFilesHistorySaver) GetLastStoryID(chat *Chat) (int32, error) {
 	return s.getLastLineID(chatFPath)
 }
 
-func (s JSONFilesHistorySaver) loadRelated(fpath string, obj interface{}, f func(interface{})) error {
+func loadRelated[T any](fpath string, f func(T)) error {
 	file, err := os.Open(fpath)
 	if os.IsNotExist(err) {
 		return nil
@@ -309,7 +310,8 @@ func (s JSONFilesHistorySaver) loadRelated(fpath string, obj interface{}, f func
 
 	decoder := json.NewDecoder(file)
 	for {
-		err := decoder.Decode(obj)
+		var obj T
+		err := decoder.Decode(&obj)
 		if err == io.EOF {
 			break
 		}
@@ -322,15 +324,13 @@ func (s JSONFilesHistorySaver) loadRelated(fpath string, obj interface{}, f func
 }
 
 func (s JSONFilesHistorySaver) loadUsers() error {
-	return s.loadRelated(s.usersFPath(), &UserData{}, func(userI interface{}) {
-		user := *userI.(*UserData)
+	return loadRelated(s.usersFPath(), func(user UserData) {
 		s.usersData[user.ID] = &user
 	})
 }
 
 func (s JSONFilesHistorySaver) loadChats() error {
-	return s.loadRelated(s.chatsFPath(), &ChatData{}, func(chatI interface{}) {
-		chat := *chatI.(*ChatData)
+	return loadRelated(s.chatsFPath(), func(chat ChatData) {
 		s.chatsData[chat.ID] = &chat
 	})
 }
@@ -352,7 +352,7 @@ func (s JSONFilesHistorySaver) SaveRelatedUsers(users []mtproto.TL) error {
 
 		user, exists := s.usersData[tgUser.ID]
 		if !exists || user.IsUpdatedBy(&tgUser) {
-			newUser := NewUserDataFromTG(tgUser, user)
+			newUser := NewUserDataFromTG(tgUser)
 
 			if encoder == nil {
 				file, err := s.openForAppend(s.usersFPath())
@@ -383,21 +383,23 @@ func (s JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
 	var encoder *json.Encoder
 	for _, chatTL := range chats {
 		var newChat *ChatData
+		chatIsMin := false
 		switch c := chatTL.(type) {
 		case mtproto.TL_chat:
 			newChat = &ChatData{ID: c.ID, Title: c.Title}
 		case mtproto.TL_chatForbidden:
 			newChat = &ChatData{ID: c.ID, Title: c.Title}
 		case mtproto.TL_channel:
-			newChat = &ChatData{ID: c.ID, Title: c.Title, Username: c.Username, IsChannel: !c.Megagroup}
+			chatIsMin = c.Min
+			newChat = &ChatData{ID: c.ID, Title: c.Title, Username: c.Username, IsChannel: mtproto.Ref(!c.Megagroup)}
 		case mtproto.TL_channelForbidden:
-			newChat = &ChatData{ID: c.ID, Title: c.Title, IsChannel: !c.Megagroup}
+			newChat = &ChatData{ID: c.ID, Title: c.Title, IsChannel: mtproto.Ref(!c.Megagroup)}
 		default:
 			return merry.Wrap(mtproto.WrongRespError(chatTL))
 		}
 
 		chat, exists := s.chatsData[newChat.ID]
-		if !exists || chat.IsUpdatedBy(newChat) {
+		if !exists || chat.IsUpdatedBy(newChat, chatIsMin) {
 			newChat.UpdatedAt = time.Now()
 
 			if encoder == nil {

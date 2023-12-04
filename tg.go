@@ -346,7 +346,7 @@ func tgLoadMessages(
 	}
 }
 
-func tgLoadMissingMessageMediaStory(tg *tgclient.TGClient, chat mtproto.TL, msgTL mtproto.TL) (mtproto.TL, error) {
+func tgLoadMissingMessageMediaStory(tg *tgclient.TGClient, chat mtproto.TL, msgTL mtproto.TL, relatedChats []mtproto.TL) (mtproto.TL, error) {
 	if msg, ok := msgTL.(mtproto.TL_message); ok {
 		if media, ok := msg.Media.(mtproto.TL_messageMediaStory); ok {
 			if media.Story == nil {
@@ -360,21 +360,38 @@ func tgLoadMissingMessageMediaStory(tg *tgclient.TGClient, chat mtproto.TL, msgT
 				case mtproto.TL_peerUser:
 					inputPeer = mtproto.TL_inputPeerUserFromMessage{Peer: chatInputPeer, MsgID: msg.ID, UserID: mediaPeer.UserID}
 				case mtproto.TL_peerChannel:
-					inputPeer = mtproto.TL_inputPeerChannelFromMessage{Peer: chatInputPeer, MsgID: msg.ID, ChannelID: mediaPeer.ChannelID}
+					// For some reason TL_inputPeerChannelFromMessage does not work here: TL_stories_getStoriesByID always returns CHANNEL_INVALID.
+					// (similar TL_inputPeerUserFromMessage works as expected though)
+					// So trying first to get channel from related chats (likely "Chats" from response to TL_messages_getHistory).
+					for _, chatTL := range relatedChats {
+						if channel, ok := chatTL.(mtproto.TL_channel); ok && channel.ID == mediaPeer.ChannelID && channel.AccessHash != nil {
+							inputPeer = mtproto.TL_inputPeerChannel{ChannelID: channel.ID, AccessHash: *channel.AccessHash}
+							break
+						}
+					}
+					if inputPeer == nil {
+						inputPeer = mtproto.TL_inputPeerChannelFromMessage{Peer: chatInputPeer, MsgID: msg.ID, ChannelID: mediaPeer.ChannelID}
+					}
+				default:
+					return nil, merry.Wrap(mtproto.WrongRespError(media.Peer))
 				}
 
 				res := tg.SendSyncRetry(mtproto.TL_stories_getStoriesByID{
 					Peer: inputPeer,
 					ID:   []int32{media.ID},
-				}, time.Second, 0, 30*time.Second)
+				}, time.Second, 0, 60*time.Second) //need more time here: once got FLOOD_WAIT_54
+
+				if mtproto.IsError(res, "CHANNEL_PRIVATE") {
+					return msgTL, nil //UI shows such message as "This story has expired."
+				}
 				stories, ok := res.(mtproto.TL_stories_stories)
 				if !ok {
 					return nil, merry.Wrap(mtproto.WrongRespError(res))
 				}
 				if len(stories.Stories) == 0 {
-					return msgTL, nil //story is not available (expired/hidden/removed)
+					return msgTL, nil //story is not available (expired/hidden/removed), shown as "This story has expired."
 				}
-				if len(stories.Stories) > 1 {
+				if len(stories.Stories) != 1 {
 					return nil, merry.Errorf("unexpected stories count: %d != 1", len(stories.Stories))
 				}
 
