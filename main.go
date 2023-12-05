@@ -522,7 +522,7 @@ func dump() error {
 			}
 			// stories
 			if !*skipStories && mayHaveStories(chat) && config.Stories.Match(chat, nil) == MatchTrue {
-				log.Info("saving stories from: %s (%s) #%d %v",
+				log.Info("saving stories  from: %s (%s) #%d %v",
 					green(chat.Title), chat.Username, chat.ID, chat.Type)
 				tryLoadArchived := chat.ID == me.ID || chat.Type == ChatChannel
 				if err := loadAndSaveStories(tg, chat, saver, tryLoadArchived); err != nil {

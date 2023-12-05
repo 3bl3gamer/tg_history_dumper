@@ -379,7 +379,7 @@ func tgLoadMissingMessageMediaStory(tg *tgclient.TGClient, chat mtproto.TL, msgT
 				res := tg.SendSyncRetry(mtproto.TL_stories_getStoriesByID{
 					Peer: inputPeer,
 					ID:   []int32{media.ID},
-				}, time.Second, 0, 60*time.Second) //need more time here: once got FLOOD_WAIT_54
+				}, time.Second, 0, 5*60*time.Second) //need more time here: once got FLOOD_WAIT_54
 
 				if mtproto.IsError(res, "CHANNEL_PRIVATE") {
 					return msgTL, nil //UI shows such message as "This story has expired."
@@ -543,7 +543,7 @@ func tgFindMediaFileInfo(mediaTL mtproto.TL, ctxObjName string, ctxObjID int32) 
 			FName: "photo.jpg",
 		}, nil
 	case mtproto.TL_messageMediaDocument:
-		doc := media.Document.(mtproto.TL_document)
+		doc := media.Document.(mtproto.TL_document) //has received TL_documentEmpty here once, after restart is has become TL_document
 		fname := ""
 		for _, attrTL := range doc.Attributes {
 			if nameAttr, ok := attrTL.(mtproto.TL_documentAttributeFilename); ok {

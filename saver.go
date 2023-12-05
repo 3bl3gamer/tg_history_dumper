@@ -73,7 +73,7 @@ type ChatData struct {
 	ID        int64
 	Username  *string
 	Title     string
-	IsChannel *bool
+	IsChannel bool
 	UpdatedAt time.Time
 }
 
@@ -82,7 +82,7 @@ func (c *ChatData) IsUpdatedBy(other *ChatData, otherIsMin bool) bool {
 		return false
 	}
 	return !equalsOpt(c.Username, other.Username) ||
-		!equalsOpt(c.IsChannel, other.IsChannel) ||
+		c.IsChannel != other.IsChannel ||
 		c.Title != other.Title
 }
 
@@ -391,9 +391,9 @@ func (s JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
 			newChat = &ChatData{ID: c.ID, Title: c.Title}
 		case mtproto.TL_channel:
 			chatIsMin = c.Min
-			newChat = &ChatData{ID: c.ID, Title: c.Title, Username: c.Username, IsChannel: mtproto.Ref(!c.Megagroup)}
+			newChat = &ChatData{ID: c.ID, Title: c.Title, Username: c.Username, IsChannel: !c.Megagroup}
 		case mtproto.TL_channelForbidden:
-			newChat = &ChatData{ID: c.ID, Title: c.Title, IsChannel: mtproto.Ref(!c.Megagroup)}
+			newChat = &ChatData{ID: c.ID, Title: c.Title, IsChannel: !c.Megagroup}
 		default:
 			return merry.Wrap(mtproto.WrongRespError(chatTL))
 		}
