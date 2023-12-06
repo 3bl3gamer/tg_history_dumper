@@ -154,6 +154,9 @@ type HistorySaver interface {
 	SaveMessages(*Chat, []mtproto.TL) error
 	SaveStories(*Chat, []mtproto.TL) error
 	SetFileRequestCallback(SaveFileCallbackFunc)
+	SaveAccount(mtproto.TL_user) error
+	SaveContacts([]mtproto.TL) error
+	SaveAuths([]mtproto.TL_authorization) error
 }
 
 type JSONFilesHistorySaver struct {

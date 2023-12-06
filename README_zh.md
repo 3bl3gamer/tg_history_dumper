@@ -1,3 +1,5 @@
+**Attention!** with update to layer 167, JSON output format got some important changes, [check them out](https://github.com/3bl3gamer/tg_history_dumper/releases/tag/v0.167.0).
+
 # Telegram 备份下载工具
 
 [English](./README.md)
