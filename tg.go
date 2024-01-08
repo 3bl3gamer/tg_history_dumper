@@ -228,12 +228,18 @@ func tgExtractChannelData(channel mtproto.TL_channel, lastMessageID int32) *Chat
 
 func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 	chats := make([]*Chat, 0)
+	chatsIDs := make(map[int64]bool)
 	offsetDate := int32(0)
+
+	// We can't fetch regular and pinned chats in one go as it interferes the order of items
+	// in the way offsetDate can't be used properly. So we'll fetch them separately.
+	excludePinned := true
 	for {
 		res := tg.SendSyncRetry(mtproto.TL_messages_getDialogs{
-			OffsetPeer: mtproto.TL_inputPeerEmpty{},
-			OffsetDate: offsetDate,
-			Limit:      100,
+			OffsetPeer:    mtproto.TL_inputPeerEmpty{},
+			OffsetDate:    offsetDate,
+			Limit:         100,
+			ExcludePinned: excludePinned,
 		}, time.Second, 0, 30*time.Second)
 
 		switch slice := res.(type) {
@@ -249,7 +255,12 @@ func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 				return nil, merry.Wrap(err)
 			}
 			for _, d := range group {
-				chats = append(chats, d) //TODO: check duplicates
+				if chatsIDs[d.ID] {
+					continue
+				}
+
+				chats = append(chats, d)
+				chatsIDs[d.ID] = true
 			}
 
 			offsetDate, err = tgGetMessageStamp(slice.Messages[len(slice.Messages)-1])
@@ -261,7 +272,14 @@ func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 				return chats, nil
 			}
 			if len(slice.Dialogs) < 100 {
-				log.Warn("some chats seem missing: got %d in the end, expected %d; retrying from start", len(chats), slice.Count)
+				if excludePinned {
+					// if the end is reached and there are still some missing chats
+					// it might be because we skipped pinned ones, so we try again with them included
+					excludePinned = false
+				} else {
+					log.Warn("some chats seem missing: got %d in the end, expected %d; retrying from start", len(chats), slice.Count)
+				}
+
 				offsetDate = 0
 			}
 		default:
