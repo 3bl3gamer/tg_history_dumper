@@ -6,11 +6,12 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/ansel1/merry"
+	"github.com/ansel1/merry/v2"
 )
 
 var defaultConfig = &Config{
 	History:           ConfigChatFilterType{Type: ChatUser},
+	Stories:           ConfigChatFilterNone{},
 	Media:             ConfigChatFilterNone{},
 	RequestIntervalMS: 1000,
 	SessionFilePath:   "tg.session",
@@ -24,6 +25,7 @@ type Config struct {
 	AppID               int32
 	AppHash             string
 	History             ConfigChatFilter
+	Stories             ConfigChatFilter
 	HistoryLimit        ConfigChatHistoryLimit
 	Media               ConfigChatFilter
 	Socks5ProxyAddr     string
@@ -199,6 +201,7 @@ type ConfigRaw struct {
 	AppID               int32                     `json:"app_id"`
 	AppHash             string                    `json:"app_hash"`
 	History             json.RawMessage           `json:"history"`
+	Stories             json.RawMessage           `json:"stories"`
 	HistoryLimit        map[int32]json.RawMessage `json:"history_limit"`
 	Media               json.RawMessage           `json:"media"`
 	Socks5ProxyAddr     string                    `json:"socks5_proxy_addr"`
@@ -264,6 +267,13 @@ func ParseConfig(fpath string) (*Config, error) {
 
 	if len(raw.History) > 0 {
 		cfg.History, err = parseConfigFilters(raw.History)
+		if err != nil {
+			return nil, merry.Wrap(err)
+		}
+	}
+
+	if len(raw.Stories) > 0 {
+		cfg.Stories, err = parseConfigFilters(raw.Stories)
 		if err != nil {
 			return nil, merry.Wrap(err)
 		}
@@ -384,14 +394,20 @@ func FindUnusedChatAttrsFilters(root ConfigChatFilter, chats []*Chat, f func(Con
 
 func CheckConfig(config *Config, chats []*Chat) {
 	FindUnusedChatAttrsFilters(config.History, chats, func(attrs ConfigChatFilterAttrs) {
-		log.Warn("no chats match filter %v", attrs)
+		log.Warn("no chats match history filter %v", attrs)
 	})
 	FindUnusedChatAttrsFilters(config.Media, chats, func(attrs ConfigChatFilterAttrs) {
-		log.Warn("no chats match filter %v", attrs)
+		log.Warn("no chats match stories filter %v", attrs)
 	})
+
 	TraverseConfigChatFilter(config.History, func(filter ConfigChatFilter) {
 		if attrs, ok := filter.(ConfigChatFilterAttrs); ok && attrs.MediaMaxSize != nil {
 			log.Warn("'media_max_size' have no effect in 'config.history'")
+		}
+	})
+	TraverseConfigChatFilter(config.Stories, func(filter ConfigChatFilter) {
+		if attrs, ok := filter.(ConfigChatFilterAttrs); ok && attrs.MediaMaxSize != nil {
+			log.Warn("'media_max_size' have no effect in 'config.stories'")
 		}
 	})
 	for _, filter := range config.HistoryLimit {

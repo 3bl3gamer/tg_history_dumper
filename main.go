@@ -11,7 +11,7 @@ import (
 
 	"github.com/3bl3gamer/tgclient"
 	"github.com/3bl3gamer/tgclient/mtproto"
-	"github.com/ansel1/merry"
+	"github.com/ansel1/merry/v2"
 	"github.com/fatih/color"
 )
 
@@ -62,22 +62,38 @@ func (l *FileProgressLogger) OnProgress(fileLocation mtproto.TL, offset, size in
 
 var log mtproto.Logger
 
+func saveRelated(saver HistorySaver, users []mtproto.TL, chats []mtproto.TL) error {
+	if err := saver.SaveRelatedUsers(users); err != nil {
+		return merry.Wrap(err)
+	}
+	if err := saver.SaveRelatedChats(chats); err != nil {
+		return merry.Wrap(err)
+	}
+	return nil
+}
+
 func saveChatsAsRelated(chats []*Chat, saver HistorySaver) error {
 	var users, groupsAndChannels []mtproto.TL
 	for _, c := range chats {
-		if _, ok := c.Obj.(mtproto.TL_user); ok {
+		if c.Type == ChatUser {
 			users = append(users, c.Obj)
 		} else {
 			groupsAndChannels = append(groupsAndChannels, c.Obj)
 		}
 	}
-	if err := saver.SaveRelatedUsers(users); err != nil {
-		return merry.Wrap(err)
+	return merry.Wrap(saveRelated(saver, users, groupsAndChannels))
+}
+
+func prependSelfChat(chats []*Chat, me *mtproto.TL_user) []*Chat {
+	meChat := tgExtractUserData(*me, 0)
+	for i, chat := range chats {
+		if chat.ID == me.ID {
+			meChat = chats[i]
+			chats = append(chats[:i], chats[i+1:]...)
+			break
+		}
 	}
-	if err := saver.SaveRelatedChats(groupsAndChannels); err != nil {
-		return merry.Wrap(err)
-	}
-	return nil
+	return append([]*Chat{meChat}, chats...)
 }
 
 func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, config *Config) error {
@@ -143,11 +159,7 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 			// and subsequent loading will go on as usual (from older messages to newer ones)
 			historyLimit = 0
 
-			if err := saver.SaveRelatedUsers(users); err != nil {
-				return merry.Wrap(err)
-			}
-
-			if err := saver.SaveRelatedChats(chats); err != nil {
+			if err := saveRelated(saver, users, chats); err != nil {
 				return merry.Wrap(err)
 			}
 
@@ -163,6 +175,17 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 					startID = msgID
 				}
 			}
+
+			// TODO: it's better to request message stories directly before message saving (same as files)
+			//       so stories will not be re-fetched after restart
+			for i, msg := range newMessages {
+				newMsg, err := tgLoadMissingMessageMediaStory(tg, chat.Obj, msg, chats)
+				if err != nil {
+					return merry.Wrap(err)
+				}
+				newMessages[i] = newMsg
+			}
+
 			log.Debug("got %d new message(s)", len(newMessages))
 
 			if err := saver.SaveMessages(chat, newMessages); err != nil {
@@ -184,6 +207,117 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 		prevIterTime = now
 	}
 	return nil
+}
+
+func loadAndSaveStories(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, tryLoadArchived bool) error {
+	chunkSize := int32(50) //TODO: 100 is available?
+	lastSavedID, err := saver.GetLastStoryID(chat)
+	if err != nil {
+		return merry.Wrap(err)
+	}
+
+	// latestStories:
+	//   Loading latest stories chunk to get the last ID (so we can load stories from oldest to newest until this ID).
+	//   (user/channel).StoriesMaxID and TL_stories_getPeerMaxIDs will be non-zero only if stories were posted recently.
+	// archivedAreAvailable:
+	//   Checking if archived stories are available, if not, loading only pinned.
+	var latestStories []mtproto.TL
+	archivedAreAvailable := false
+	if tryLoadArchived {
+		latestStories, err = loadStoriesAndSaveRelated(tg, saver, chat, chunkSize, 0, true)
+		if err == nil {
+			archivedAreAvailable = true
+		} else if !strings.Contains(err.Error(), "CHAT_ADMIN_REQUIRED") {
+			return merry.Wrap(err)
+		}
+	}
+	if !archivedAreAvailable {
+		latestStories, err = loadStoriesAndSaveRelated(tg, saver, chat, chunkSize, 0, false)
+		if err != nil {
+			return merry.Wrap(err)
+		}
+	}
+
+	if len(latestStories) == 0 {
+		return nil
+	}
+
+	// stories are sorted by ID from highest (most recent) to lowest
+	latestChunkFirstID, err := tgGetStoryID(latestStories[len(latestStories)-1])
+	if err != nil {
+		return merry.Wrap(err)
+	}
+
+	// loading and saving stories between last saved and latest loaded
+	if lastSavedID+1 < latestChunkFirstID {
+		for lowerOffsetID := lastSavedID + 1; lowerOffsetID < latestChunkFirstID; lowerOffsetID += chunkSize {
+			offsetID := lowerOffsetID + chunkSize
+
+			stories, err := loadStoriesAndSaveRelated(tg, saver, chat, chunkSize, offsetID, archivedAreAvailable)
+			if err != nil {
+				return merry.Wrap(err)
+			}
+
+			newStoriesMaxID := int32(0)
+			newStories := make([]mtproto.TL, 0, len(latestStories))
+			for _, storyTL := range stories {
+				storyID, err := tgGetStoryID(storyTL)
+				if err != nil {
+					return merry.Wrap(err)
+				}
+				if storyID > lastSavedID {
+					newStories = append(newStories, storyTL)
+				}
+				if storyID > newStoriesMaxID {
+					newStoriesMaxID = storyID
+				}
+			}
+
+			if err := saver.SaveStories(chat, newStories); err != nil {
+				return merry.Wrap(err)
+			}
+			lastSavedID = newStoriesMaxID
+		}
+	}
+
+	// saving latest loaded
+	{
+		newStories := make([]mtproto.TL, 0, len(latestStories))
+		for _, storyTL := range latestStories {
+			storyID, err := tgGetStoryID(storyTL)
+			if err != nil {
+				return merry.Wrap(err)
+			}
+			if storyID > lastSavedID {
+				newStories = append(newStories, storyTL)
+			}
+		}
+		if err := saver.SaveStories(chat, newStories); err != nil {
+			return merry.Wrap(err)
+		}
+	}
+
+	return nil
+}
+func loadStoriesAndSaveRelated(tg *tgclient.TGClient, saver HistorySaver, chat *Chat, limit, offsetID int32, useArchived bool) ([]mtproto.TL, error) {
+	var stories, users, chats []mtproto.TL
+	var err error
+	if useArchived {
+		stories, users, chats, err = tgLoadArchivedStories(tg, chat.Obj, limit, offsetID)
+	} else {
+		stories, users, chats, err = tgLoadPinnedStories(tg, chat.Obj, limit, offsetID)
+	}
+	if err != nil {
+		return nil, merry.Wrap(err)
+	}
+	if err := saveRelated(saver, users, chats); err != nil {
+		return nil, merry.Wrap(err)
+	}
+	return stories, nil
+}
+
+func mayHaveStories(chat *Chat) bool {
+	return chat.Type == ChatUser || chat.Type == ChatChannel
 }
 
 func mustOpen(fpath string) *os.File {
@@ -209,6 +343,7 @@ func dump() error {
 	sessionFPath := flag.String("session", "", "session file path, overrides config.session_file_path")
 	outDirPath := flag.String("out", "", "output directory path, overriders config.out_dir_path")
 	chatTitle := flag.String("chat", "", "title of the chat to dump, overrides config.history")
+  skipStories := flag.Bool("skip-stories", false, "do not dump sotries, overrides config.stories")
 	doListChats := flag.Bool("list-chats", false, "list all available chats, do not dump anything")
 	doLogout := flag.Bool("logout", false, "logout and remove session file, do not dump anything")
 	logDebug := flag.Bool("debug", false, "show debug log messages")
@@ -264,6 +399,7 @@ func dump() error {
 	overrideStrParam(&config.Socks5ProxyPassword, sosks5password)
 	if *chatTitle != "" {
 		config.History = ConfigChatFilterAttrs{Title: chatTitle}
+		config.Stories = ConfigChatFilterAttrs{Title: chatTitle}
 	}
 	overrideStrParam(&config.SessionFilePath, sessionFPath)
 	overrideStrParam(&config.OutDirPath, outDirPath)
@@ -272,7 +408,7 @@ func dump() error {
 	overrideStrParam(&config.DoSessionsDump, doSessionsDump)
 
 	if config.AppID == 0 || config.AppHash == "" {
-		println("app_id and app_hash are required (in config or flags)")
+		log.Error(nil, "app_id and app_hash are required (in config or flags)")
 		flag.Usage()
 		os.Exit(2)
 	}
@@ -282,28 +418,38 @@ func dump() error {
 	if err != nil {
 		return merry.Wrap(err)
 	}
-	greenBoldf := color.New(color.FgGreen, color.Bold).SprintfFunc()
-	log.Info("logged in as %s #%d",
-		greenBoldf("%s (%s)", strings.TrimSpace(me.FirstName+" "+me.LastName), me.Username), me.ID)
+  
+	{
+		greenBoldf := color.New(color.FgGreen, color.Bold).SprintfFunc()
+		firstName := mtproto.DerefOr(me.FirstName, "")
+		lastName := mtproto.DerefOr(me.LastName, "")
+		username := mtproto.DerefOr(me.Username, "")
+		log.Info("logged in as %s #%d",
+			greenBoldf("%s (%s)", strings.TrimSpace(firstName+" "+lastName), username), me.ID)
+	}
 
 	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
-	saver.SetFileRequestCallback(func(chat *Chat, file *TGFileInfo, msgID int32) error {
-		var err error
+	saver.SetFileRequestCallback(func(chat *Chat, file *TGFileInfo, msgID int32, mediaSource MediaFileSource) error {
 		if config.Media.Match(chat, file) == MatchTrue {
-			fpath, err := saver.MessageFileFPath(chat, msgID, file.FName)
+			fpath, err := saver.MessageFileFPath(chat, msgID, file.FName, mediaSource)
+			if err != nil {
+				return merry.Wrap(err)
+			}
 			_, err = os.Stat(fpath)
 			if os.IsNotExist(err) {
 				log.Info("downloading file to %s", fpath)
-				_, err = tg.DownloadFileToPath(fpath, file.InputLocation, file.DcID, int64(file.Size), NewFileProgressLogger())
+				_, err := tg.DownloadFileToPath(fpath, file.InputLocation, file.DCID, int64(file.Size), NewFileProgressLogger())
 				if isBrokenFileError(err) {
 					log.Error(nil, "in chat %d %s (%s): wrong file: %s", chat.ID, chat.Title, chat.Username, fpath)
 					err = nil
 				}
+				return merry.Wrap(err)
 			}
+			return merry.Wrap(err)
 		} else {
 			log.Debug("skipping file '%s' of message #%d", file.FName, msgID)
+			return nil
 		}
-		return merry.Wrap(err)
 	})
 
 	// loading chats
@@ -311,6 +457,9 @@ func dump() error {
 	if err != nil {
 		return merry.Wrap(err)
 	}
+	// must ensure self user is added to the chats list: if there are no saved messages,
+	// self won't be in dialogs, but it may still be meeded for stories
+	chats = prependSelfChat(chats, me)
 
 	CheckConfig(config, chats)
 
@@ -347,43 +496,56 @@ func dump() error {
 		}
 
 	} else {
-		// saveing user info
+		// saving user info
 		if config.DoAccountDump == "write" {
-			saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
-			saver.SaveAccount(*me)
-			log.Info("User Account Info Saved")
+			if err := saver.SaveAccount(*me); err != nil {
+				return merry.Wrap(err)
+			}
+			log.Info("user Account Info Saved")
 		}
 
-		// saveing contacts
+		// saving contacts
 		if config.DoContactsDump == "write" {
 			contacts, err := tgLoadContacts(tg)
 			if err != nil {
 				return merry.Wrap(err)
 			}
-			saver.SaveContacts(contacts.Users)
-			log.Info("Contacts Saved")
+			if err := saver.SaveContacts(contacts.Users); err != nil {
+				return merry.Wrap(err)
+			}
+			log.Info("contacts Saved")
 		}
 
-		// saveing sessions
+		// saving sessions
 		if config.DoSessionsDump == "write" {
 			authList, err := tgLoadAuths(tg)
 			if err != nil {
 				return merry.Wrap(err)
 			}
 			saver.SaveAuths(authList)
-			log.Info("Active Sessions Saved")
+			log.Info("active Sessions Saved")
 		}
 
-		// saving messages
+		// saving messages and stories
 		if err := saveChatsAsRelated(chats, saver); err != nil {
 			return merry.Wrap(err)
 		}
 		green := color.New(color.FgGreen).SprintFunc()
 		for _, chat := range chats {
+			// messages
 			if config.History.Match(chat, nil) == MatchTrue {
 				log.Info("saving messages from: %s (%s) #%d %v",
 					green(chat.Title), chat.Username, chat.ID, chat.Type)
 				if err := loadAndSaveMessages(tg, chat, saver, config); err != nil {
+					return merry.Wrap(err)
+				}
+			}
+			// stories
+			if !*skipStories && mayHaveStories(chat) && config.Stories.Match(chat, nil) == MatchTrue {
+				log.Info("saving stories  from: %s (%s) #%d %v",
+					green(chat.Title), chat.Username, chat.ID, chat.Type)
+				tryLoadArchived := chat.ID == me.ID || chat.Type == ChatChannel
+				if err := loadAndSaveStories(tg, chat, saver, tryLoadArchived); err != nil {
 					return merry.Wrap(err)
 				}
 			}

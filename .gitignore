@@ -1,7 +1,6 @@
-tg_history_dumper
-tg.session
-json
-debug.log
-error.log
-/history
-config.json
+/tg_history_dumper
+/debug.log
+/error.log
+/config*.json
+/*.session
+/history*/

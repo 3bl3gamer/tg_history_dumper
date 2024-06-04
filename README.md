@@ -1,3 +1,5 @@
+**Attention!** with update to layer 167, JSON output format got some important changes, [check them out](https://github.com/3bl3gamer/tg_history_dumper/releases/tag/v0.167.0).
+
 # Telegram History Dumper
 
 [中文](./README_zh.md)
@@ -57,8 +59,8 @@ Format:
         {"exclude": {"type": "channel"}},
         {"username": "my_channel"}
     ],
+    "stories": "none",
     "media": [
-        "none",
         {"type": "user"},
         {"username": "my_channel"}
     ],
@@ -82,13 +84,22 @@ Format:
 * `session_file_path` — (optional, default is `tg.session`) session file location (you will not have to login next time if it is present);
 * `out_dir_path` — (optional, default is `history`) folder for saved messages and media;
 * `history` — (optional, default is `{"type": "user"}`) chat filtering [rules](#rules);
-* `media` — (optional, default is `"none"`) chat media filtering [rules](#rules), only applies to chats matched to `history` rules;
+* `stories` — (optional, default is `"none"`) [stories](#stories) filtering [rules](#rules);
+* `media` — (optional, default is `"none"`) chat media filtering [rules](#rules), only applies to chats matched to `history` rules and to stories matched to `stories` rules;
 * `history_limit` — (optional, default is `{}`) new chat [history limiting](#history-limits) rules;
-* `dump_account` — (optional, default is `"off"`, use `"write"` to enable dump) dumps basic account information to file, overrides config.dump_account, does not apply when `-list-chats` enabled;
-* `dump_contacts` — (optional, default is `"off"`, use `"write"` to enable dump) dumps contacts information to file, overrides config.dump_contacts, does not apply when `-list-chats` enabled;
-* `dump_sessions` — (optional, default is `"off"`, use `"write"` to enable dump) dumps active sessions to file, overrides config.dump_sessions, does not apply when `-list-chats` enabled.
+* `dump_account` — (optional, default is `"off"`, use `"write"` to enable dump) dumps basic account information to file, does not apply when `-list-chats` enabled;
+* `dump_contacts` — (optional, default is `"off"`, use `"write"` to enable dump) dumps contacts information to file, does not apply when `-list-chats` enabled;
+* `dump_sessions` — (optional, default is `"off"`, use `"write"` to enable dump) dumps active sessions to file, does not apply when `-list-chats` enabled.
 
 If config has non-empty `app_id` and `app_hash`, dump may be updated just with `tg_history_dumper` (without arguments).
+
+### Stories
+
+Currently, stories are saved from user's/channel's public "posts" tab and (if accessible) from stories archive. Recent stories with the "Post to My Profile" switch turned off will not be saved.
+
+Stories dumping is relatively slow, so there is a `-skip-stories` flag to bypass stories saving as if `config.stories` was set to `"none"`.
+
+[History limits](#history-limits) do not affect stories.
 
 ### History limits
 
@@ -240,19 +251,21 @@ Usage of tg_history_dumper:
   -debug-tg
         show debug TGClient log messages
   -dump-account string
-        enable basic user information dump, use 'write' to enable dump, overriders config.dump_account
+        enable basic user information dump, use 'write' to enable dump, overrides config.dump_account
   -dump-contacts string
-        enable contacts dump, use 'write' to enable dump, overriders config.dump_contacts
+        enable contacts dump, use 'write' to enable dump, overrides config.dump_contacts
   -dump-sessions string
-        enable active sessions dump, use 'write' to enable dump, overriders config.dump_sessions
+        enable active sessions dump, use 'write' to enable dump, overrides config.dump_sessions
   -list-chats
         list all available chats, do not dump anything
   -logout
         logout and remove session file, do not dump anything
   -out string
-        output directory path, overriders config.out_dir_path
+        output directory path, overrides config.out_dir_path
   -session string
         session file path, overrides config.session_file_path
+  -skip-stories
+        do not dump sotries, overrides config.stories
   -socks5 string
         socks5 proxy address:port, overrides config.socks5_proxy_addr
   -socks5-password string
@@ -263,7 +276,7 @@ Usage of tg_history_dumper:
 
 ## Format
 
-## Messages
+### Messages
 
 All messages are saved as JSON Lines (aka jsonl) to file `history/<id>_<title>`. Dumper searches directories only by id and renames folder when title is changed.
 
@@ -274,7 +287,7 @@ Each JSON object has special field `"_"` with type name. Outermost objects has o
 ```
 (some message fields were removed for readability)
 
-## Peers
+### Peers
 
 Related users and chats (aka peers) are saved to `history/users` and `history/chats` respectively. Each file is JSON Lines with some basic user/chat data like id, usrname, first/lastname, title, etc.
 

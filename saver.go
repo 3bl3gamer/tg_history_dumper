@@ -4,26 +4,35 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/3bl3gamer/tgclient/mtproto"
-	"github.com/ansel1/merry"
+	"github.com/ansel1/merry/v2"
+)
+
+type MediaFileSource byte
+
+const (
+	MessageMediaFile MediaFileSource = iota
+	StoryMediaFile
 )
 
 type UserData struct {
 	ID          int64
-	Username    string
-	FirstName   string
-	LastName    string
-	PhoneNumber string
+	Username    *string
+	FirstName   *string
+	LastName    *string
+	PhoneNumber *string
 	IsBot       bool
 	IsFake      bool
 	IsScam      bool
 	IsVerified  bool
 	IsPremium   bool
+	IsDeleted   bool
 	UpdatedAt   time.Time
 }
 
@@ -39,33 +48,49 @@ func NewUserDataFromTG(tgUser mtproto.TL_user) *UserData {
 		IsScam:      tgUser.Scam,
 		IsVerified:  tgUser.Verified,
 		IsPremium:   tgUser.Premium,
+		IsDeleted:   tgUser.Deleted,
 		UpdatedAt:   time.Now(),
 	}
 }
 
-func (u *UserData) Equals(other *mtproto.TL_user) bool {
-	// Sometimes Username becomes blank and then becomes filled again.
-	// This will produce unnesessary updates in users file. So just ignoring that change.
-	return (other.Username == "" || u.Username == other.Username) &&
-		u.FirstName == other.FirstName && u.LastName == other.LastName &&
-		u.PhoneNumber == other.Phone &&
-		u.IsFake == other.Fake && u.IsScam == other.Scam &&
-		u.IsVerified == other.Verified && u.IsPremium == other.Premium
+func (u *UserData) IsUpdatedBy(other *mtproto.TL_user) bool {
+	if other.Min {
+		return false //min constructor does not update old data (https://core.telegram.org/api/min)
+	}
+	return !equalsOpt(u.FirstName, other.FirstName) ||
+		!equalsOpt(u.LastName, other.LastName) ||
+		!equalsOpt(u.Username, other.Username) ||
+		!equalsOpt(u.PhoneNumber, other.Phone) ||
+		u.IsBot != other.Bot ||
+		u.IsFake != other.Fake ||
+		u.IsScam != other.Scam ||
+		u.IsVerified != other.Verified ||
+		u.IsPremium != other.Premium ||
+		u.IsDeleted != other.Deleted
 }
 
 type ChatData struct {
 	ID        int64
-	Username  string
+	Username  *string
 	Title     string
 	IsChannel bool
 	UpdatedAt time.Time
 }
 
-func (c *ChatData) Equals(other *ChatData) bool {
-	return c.Username == other.Username && c.Title == other.Title
+func (c *ChatData) IsUpdatedBy(other *ChatData, otherIsMin bool) bool {
+	if otherIsMin {
+		return false
+	}
+	return !equalsOpt(c.Username, other.Username) ||
+		c.IsChannel != other.IsChannel ||
+		c.Title != other.Title
 }
 
-type SaveFileCallbackFunc func(*Chat, *TGFileInfo, int32) error
+type SaveFileCallbackFunc func(*Chat, *TGFileInfo, int32, MediaFileSource) error
+
+func equalsOpt[T comparable](old, new *T) bool {
+	return new == old || (old != nil && new != nil && *new == *old)
+}
 
 func fnameIDPrefix(id int64) string {
 	return strconv.FormatInt(id, 10) + "_"
@@ -123,10 +148,15 @@ func findFPathForID(dirpath string, id int64, defaultName string) (string, error
 
 type HistorySaver interface {
 	GetLastMessageID(*Chat) (int32, error)
+	GetLastStoryID(*Chat) (int32, error)
 	SaveRelatedUsers([]mtproto.TL) error
 	SaveRelatedChats([]mtproto.TL) error
 	SaveMessages(*Chat, []mtproto.TL) error
+	SaveStories(*Chat, []mtproto.TL) error
 	SetFileRequestCallback(SaveFileCallbackFunc)
+	SaveAccount(mtproto.TL_user) error
+	SaveContacts([]mtproto.TL) error
+	SaveAuths([]mtproto.TL_authorization) error
 }
 
 type JSONFilesHistorySaver struct {
@@ -136,7 +166,7 @@ type JSONFilesHistorySaver struct {
 	requestFileFunc SaveFileCallbackFunc
 }
 
-func (s JSONFilesHistorySaver) chatFPath(chat *Chat) (string, error) {
+func (s JSONFilesHistorySaver) chatMessagesFPath(chat *Chat) (string, error) {
 	return findFPathForID(s.Dirpath, int64(chat.ID), chat.Title)
 }
 
@@ -160,8 +190,16 @@ func (s JSONFilesHistorySaver) accountFPath() string {
 	return s.Dirpath + "/account"
 }
 
-func (s JSONFilesHistorySaver) MessageFileFPath(chat *Chat, msgID int32, fname string) (string, error) {
-	dirPath, err := findFPathForID(s.Dirpath+"/files", int64(chat.ID), chat.Title)
+func (s JSONFilesHistorySaver) chatStoriesFPath(chat *Chat) (string, error) {
+	return findFPathForID(s.Dirpath+"/stories", int64(chat.ID), chat.Title)
+}
+
+func (s JSONFilesHistorySaver) MessageFileFPath(chat *Chat, msgID int32, fname string, mediaSource MediaFileSource) (string, error) {
+	baseDirPath := s.Dirpath + "/files"
+	if mediaSource == StoryMediaFile {
+		baseDirPath += "/stories"
+	}
+	dirPath, err := findFPathForID(baseDirPath, int64(chat.ID), chat.Title)
 	if err != nil {
 		return "", merry.Wrap(err)
 	}
@@ -172,12 +210,12 @@ func (s JSONFilesHistorySaver) MessageFileFPath(chat *Chat, msgID int32, fname s
 	return dirPath + "/" + fnameIDPrefix(int64(msgID)) + escapeNameForFS(suffix), nil
 }
 
-func (s JSONFilesHistorySaver) makeBaseDir() error {
-	return merry.Wrap(os.MkdirAll(s.Dirpath, 0700))
+func (s JSONFilesHistorySaver) makeDir(dirpath string) error {
+	return merry.Wrap(os.MkdirAll(dirpath, 0700))
 }
 
 func (s JSONFilesHistorySaver) openForAppend(fpath string) (*os.File, error) {
-	if err := s.makeBaseDir(); err != nil {
+	if err := s.makeDir(filepath.Dir(fpath)); err != nil {
 		return nil, merry.Wrap(err)
 	}
 	file, err := os.OpenFile(fpath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
@@ -188,7 +226,7 @@ func (s JSONFilesHistorySaver) openForAppend(fpath string) (*os.File, error) {
 }
 
 func (s JSONFilesHistorySaver) openAndTruncate(fpath string) (*os.File, error) {
-	if err := s.makeBaseDir(); err != nil {
+	if err := s.makeDir(filepath.Dir(fpath)); err != nil {
 		return nil, merry.Wrap(err)
 	}
 	file, err := os.OpenFile(fpath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0600)
@@ -198,12 +236,8 @@ func (s JSONFilesHistorySaver) openAndTruncate(fpath string) (*os.File, error) {
 	return file, nil
 }
 
-func (s JSONFilesHistorySaver) GetLastMessageID(chat *Chat) (int32, error) {
-	chatFPath, err := s.chatFPath(chat)
-	if err != nil {
-		return 0, merry.Wrap(err)
-	}
-	file, err := os.Open(chatFPath)
+func (s JSONFilesHistorySaver) getLastLineID(fpath string) (int32, error) {
+	file, err := os.Open(fpath)
 	if os.IsNotExist(err) {
 		return 0, nil
 	}
@@ -251,7 +285,23 @@ func (s JSONFilesHistorySaver) GetLastMessageID(chat *Chat) (int32, error) {
 	return int32(id), nil
 }
 
-func (s JSONFilesHistorySaver) loadRelated(fpath string, obj interface{}, f func(interface{})) error {
+func (s JSONFilesHistorySaver) GetLastMessageID(chat *Chat) (int32, error) {
+	chatFPath, err := s.chatMessagesFPath(chat)
+	if err != nil {
+		return 0, merry.Wrap(err)
+	}
+	return s.getLastLineID(chatFPath)
+}
+
+func (s JSONFilesHistorySaver) GetLastStoryID(chat *Chat) (int32, error) {
+	chatFPath, err := s.chatStoriesFPath(chat)
+	if err != nil {
+		return 0, merry.Wrap(err)
+	}
+	return s.getLastLineID(chatFPath)
+}
+
+func loadRelated[T any](fpath string, f func(T)) error {
 	file, err := os.Open(fpath)
 	if os.IsNotExist(err) {
 		return nil
@@ -263,7 +313,8 @@ func (s JSONFilesHistorySaver) loadRelated(fpath string, obj interface{}, f func
 
 	decoder := json.NewDecoder(file)
 	for {
-		err := decoder.Decode(obj)
+		var obj T
+		err := decoder.Decode(&obj)
 		if err == io.EOF {
 			break
 		}
@@ -276,15 +327,13 @@ func (s JSONFilesHistorySaver) loadRelated(fpath string, obj interface{}, f func
 }
 
 func (s JSONFilesHistorySaver) loadUsers() error {
-	return s.loadRelated(s.usersFPath(), &UserData{}, func(userI interface{}) {
-		user := *userI.(*UserData)
+	return loadRelated(s.usersFPath(), func(user UserData) {
 		s.usersData[user.ID] = &user
 	})
 }
 
 func (s JSONFilesHistorySaver) loadChats() error {
-	return s.loadRelated(s.chatsFPath(), &ChatData{}, func(chatI interface{}) {
-		chat := *chatI.(*ChatData)
+	return loadRelated(s.chatsFPath(), func(chat ChatData) {
 		s.chatsData[chat.ID] = &chat
 	})
 }
@@ -304,8 +353,8 @@ func (s JSONFilesHistorySaver) SaveRelatedUsers(users []mtproto.TL) error {
 			return merry.Errorf(mtproto.UnexpectedTL("user", userTL))
 		}
 
-		user, ok := s.usersData[tgUser.ID]
-		if !ok || !user.Equals(&tgUser) {
+		user, exists := s.usersData[tgUser.ID]
+		if !exists || user.IsUpdatedBy(&tgUser) {
 			newUser := NewUserDataFromTG(tgUser)
 
 			if encoder == nil {
@@ -337,12 +386,14 @@ func (s JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
 	var encoder *json.Encoder
 	for _, chatTL := range chats {
 		var newChat *ChatData
+		chatIsMin := false
 		switch c := chatTL.(type) {
 		case mtproto.TL_chat:
 			newChat = &ChatData{ID: c.ID, Title: c.Title}
 		case mtproto.TL_chatForbidden:
 			newChat = &ChatData{ID: c.ID, Title: c.Title}
 		case mtproto.TL_channel:
+			chatIsMin = c.Min
 			newChat = &ChatData{ID: c.ID, Title: c.Title, Username: c.Username, IsChannel: !c.Megagroup}
 		case mtproto.TL_channelForbidden:
 			newChat = &ChatData{ID: c.ID, Title: c.Title, IsChannel: !c.Megagroup}
@@ -350,8 +401,8 @@ func (s JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
 			return merry.Wrap(mtproto.WrongRespError(chatTL))
 		}
 
-		chat, ok := s.chatsData[newChat.ID]
-		if !ok || !chat.Equals(newChat) {
+		chat, exists := s.chatsData[newChat.ID]
+		if !exists || chat.IsUpdatedBy(newChat, chatIsMin) {
 			newChat.UpdatedAt = time.Now()
 
 			if encoder == nil {
@@ -373,7 +424,6 @@ func (s JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
 }
 
 func (s JSONFilesHistorySaver) SaveContacts(contacts []mtproto.TL) error {
-
 	file, err := s.openAndTruncate(s.contactsFPath())
 	if err != nil {
 		return merry.Wrap(err)
@@ -391,12 +441,10 @@ func (s JSONFilesHistorySaver) SaveContacts(contacts []mtproto.TL) error {
 	if err := encoder.Encode(contactsMap); err != nil {
 		return merry.Wrap(err)
 	}
-
 	return nil
 }
 
-func (s JSONFilesHistorySaver) SaveAuths(auths []mtproto.TL) error {
-
+func (s JSONFilesHistorySaver) SaveAuths(auths []mtproto.TL_authorization) error {
 	file, err := s.openAndTruncate(s.authsFPath())
 	if err != nil {
 		return merry.Wrap(err)
@@ -414,12 +462,10 @@ func (s JSONFilesHistorySaver) SaveAuths(auths []mtproto.TL) error {
 	if err := encoder.Encode(authsMap); err != nil {
 		return merry.Wrap(err)
 	}
-
 	return nil
 }
 
 func (s JSONFilesHistorySaver) SaveAccount(me mtproto.TL_user) error {
-
 	file, err := s.openAndTruncate(s.accountFPath())
 	if err != nil {
 		return merry.Wrap(err)
@@ -433,16 +479,14 @@ func (s JSONFilesHistorySaver) SaveAccount(me mtproto.TL_user) error {
 	if err := encoder.Encode(accMap); err != nil {
 		return merry.Wrap(err)
 	}
-
 	return nil
 }
 
-func (s JSONFilesHistorySaver) SaveMessages(chat *Chat, messages []mtproto.TL) error {
-	chatFPath, err := s.chatFPath(chat)
-	if err != nil {
-		return merry.Wrap(err)
-	}
-	file, err := s.openForAppend(chatFPath)
+func (s JSONFilesHistorySaver) appendRecordsWithRelatedMedia(
+	fpath string, messages []mtproto.TL,
+	chat *Chat, mediaSource MediaFileSource, fileInfoFunc func(item mtproto.TL) (*TGFileInfo, error),
+) error {
+	file, err := s.openForAppend(fpath)
 	if err != nil {
 		return merry.Wrap(err)
 	}
@@ -454,12 +498,12 @@ func (s JSONFilesHistorySaver) SaveMessages(chat *Chat, messages []mtproto.TL) e
 		msgMap := tgObjToMap(msg)
 		msgMap["_TL_LAYER"] = mtproto.TL_Layer
 		if s.requestFileFunc != nil {
-			err, fileInfo := tgFindMessageMediaFileInfo(msg)
+			fileInfo, err := fileInfoFunc(msg)
 			if err != nil {
 				return merry.Wrap(err)
 			}
 			if fileInfo != nil {
-				if err := s.requestFileFunc(chat, fileInfo, msgMap["ID"].(int32)); err != nil {
+				if err := s.requestFileFunc(chat, fileInfo, msgMap["ID"].(int32), mediaSource); err != nil {
 					return merry.Wrap(err)
 				}
 			}
@@ -473,6 +517,24 @@ func (s JSONFilesHistorySaver) SaveMessages(chat *Chat, messages []mtproto.TL) e
 		return merry.Wrap(err)
 	}
 	return nil
+}
+
+func (s JSONFilesHistorySaver) SaveMessages(chat *Chat, messages []mtproto.TL) error {
+	messagesFPath, err := s.chatMessagesFPath(chat)
+	if err != nil {
+		return merry.Wrap(err)
+	}
+	err = s.appendRecordsWithRelatedMedia(messagesFPath, messages, chat, MessageMediaFile, tgFindMessageMediaFileInfo)
+	return merry.Wrap(err)
+}
+
+func (s JSONFilesHistorySaver) SaveStories(chat *Chat, stories []mtproto.TL) error {
+	storiesFPath, err := s.chatStoriesFPath(chat)
+	if err != nil {
+		return merry.Wrap(err)
+	}
+	err = s.appendRecordsWithRelatedMedia(storiesFPath, stories, chat, StoryMediaFile, tgFindStoryMediaFileInfo)
+	return merry.Wrap(err)
 }
 
 func (s *JSONFilesHistorySaver) SetFileRequestCallback(callback SaveFileCallbackFunc) {
