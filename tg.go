@@ -67,8 +67,8 @@ func tgConnect(config *Config, logHandler *LogHandler) (*tgclient.TGClient, *mtp
 	cfg := &mtproto.AppConfig{
 		AppID:          config.AppID,
 		AppHash:        config.AppHash,
-		AppVersion:     "0.0.1",
-		DeviceModel:    "Unknown",
+		AppVersion:     "0." + strconv.Itoa(mtproto.TL_Layer),
+		DeviceModel:    "TG History Dumper",
 		SystemVersion:  runtime.GOOS + "/" + runtime.GOARCH,
 		SystemLangCode: "en",
 		LangPack:       "",
@@ -240,9 +240,7 @@ func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 			if err != nil {
 				return nil, merry.Wrap(err)
 			}
-			for _, d := range group {
-				chats = append(chats, d) //TODO: check duplicates
-			}
+			chats = append(chats, group...) //TODO: check duplicates
 
 			offsetDate, err = tgGetMessageStamp(slice.Messages[len(slice.Messages)-1])
 			if err != nil {
@@ -487,7 +485,7 @@ type TGFileInfo struct {
 
 // getBestPhotoSize returns largest photo size of images.
 // Usually it is the last size-object. But SOMETIMES Sizes aray is reversed.
-func getBestPhotoSize(photo mtproto.TL_photo) (err error, sizeType string, sizeBytes int32) {
+func getBestPhotoSize(photo mtproto.TL_photo) (sizeType string, sizeBytes int32, err error) {
 	maxResolution := int32(0)
 	for _, sizeTL := range photo.Sizes {
 		switch size := sizeTL.(type) {
@@ -527,7 +525,7 @@ func tgFindMediaFileInfo(mediaTL mtproto.TL, ctxObjName string, ctxObjID int32) 
 			return nil, nil
 		}
 		photo := media.Photo.(mtproto.TL_photo)
-		err, sizeType, sizeBytes := getBestPhotoSize(photo)
+		sizeType, sizeBytes, err := getBestPhotoSize(photo)
 		if err != nil {
 			return nil, merry.Prependf(err, "image size of %s #%d", ctxObjName, ctxObjID)
 		}

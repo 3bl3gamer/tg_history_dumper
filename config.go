@@ -9,7 +9,7 @@ import (
 	"github.com/ansel1/merry/v2"
 )
 
-var defaultConfig = &Config{
+var defaultConfig = Config{
 	History:           ConfigChatFilterType{Type: ChatUser},
 	Stories:           ConfigChatFilterNone{},
 	Media:             ConfigChatFilterNone{},
@@ -223,7 +223,7 @@ func ParseConfig(fpath string) (*Config, error) {
 		if !silentParseTestMode {
 			log.Warn("config file %s not found, using default one", fpath)
 		}
-		return defaultConfig, nil
+		return &defaultConfig, nil
 	} else if err != nil {
 		return nil, merry.Wrap(err)
 	}
@@ -234,7 +234,7 @@ func ParseConfig(fpath string) (*Config, error) {
 		return nil, merry.Wrap(err)
 	}
 
-	cfg := &(*defaultConfig) //copying default
+	cfg := defaultConfig //copying default
 	cfg.AppID = raw.AppID
 	cfg.AppHash = raw.AppHash
 	cfg.Socks5ProxyAddr = raw.Socks5ProxyAddr
@@ -295,7 +295,7 @@ func ParseConfig(fpath string) (*Config, error) {
 			}
 		}
 	}
-	return cfg, nil
+	return &cfg, nil
 }
 
 func parseConfigFilters(buf []byte) (ConfigChatFilter, error) {

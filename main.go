@@ -53,7 +53,7 @@ func (l *FileProgressLogger) OnProgress(fileLocation mtproto.TL, offset, size in
 	if prog == 100 && l.prevProgress == 0 {
 		return //got file in one step, no need to log it
 	}
-	if prog == 100 || time.Now().Sub(l.prevTime) > 2*time.Second {
+	if prog == 100 || time.Since(l.prevTime) > 2*time.Second {
 		log.Info("%d%%", prog)
 		l.prevProgress = prog
 		l.prevTime = time.Now()
