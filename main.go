@@ -343,7 +343,7 @@ func dump() error {
 	sessionFPath := flag.String("session", "", "session file path, overrides config.session_file_path")
 	outDirPath := flag.String("out", "", "output directory path, overriders config.out_dir_path")
 	chatTitle := flag.String("chat", "", "title of the chat to dump, overrides config.history")
-  skipStories := flag.Bool("skip-stories", false, "do not dump sotries, overrides config.stories")
+	skipStories := flag.Bool("skip-stories", false, "do not dump sotries, overrides config.stories")
 	doListChats := flag.Bool("list-chats", false, "list all available chats, do not dump anything")
 	doLogout := flag.Bool("logout", false, "logout and remove session file, do not dump anything")
 	logDebug := flag.Bool("debug", false, "show debug log messages")
@@ -418,7 +418,7 @@ func dump() error {
 	if err != nil {
 		return merry.Wrap(err)
 	}
-  
+
 	{
 		greenBoldf := color.New(color.FgGreen, color.Bold).SprintfFunc()
 		firstName := mtproto.DerefOr(me.FirstName, "")
