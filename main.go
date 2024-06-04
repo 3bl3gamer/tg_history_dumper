@@ -6,6 +6,7 @@ import (
 	stdlog "log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/3bl3gamer/tgclient"
@@ -208,8 +209,8 @@ func dump() error {
 	sessionFPath := flag.String("session", "", "session file path, overrides config.session_file_path")
 	outDirPath := flag.String("out", "", "output directory path, overriders config.out_dir_path")
 	chatTitle := flag.String("chat", "", "title of the chat to dump, overrides config.history")
-	doListChats := flag.Bool("list-chats", false, "list all available chats")
-	doLogout := flag.Bool("logout", false, "Logout and clear session")
+	doListChats := flag.Bool("list-chats", false, "list all available chats, do not dump anything")
+	doLogout := flag.Bool("logout", false, "logout and remove session file, do not dump anything")
 	logDebug := flag.Bool("debug", false, "show debug log messages")
 	tgLogDebug := flag.Bool("debug-tg", false, "show debug TGClient log messages")
 	doAccountDump := flag.String("dump-account", "", "enable basic user information dump, use 'write' to enable dump, overriders config.dump_account")
@@ -281,6 +282,9 @@ func dump() error {
 	if err != nil {
 		return merry.Wrap(err)
 	}
+	greenBoldf := color.New(color.FgGreen, color.Bold).SprintfFunc()
+	log.Info("logged in as %s #%d",
+		greenBoldf("%s (%s)", strings.TrimSpace(me.FirstName+" "+me.LastName), me.Username), me.ID)
 
 	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
 	saver.SetFileRequestCallback(func(chat *Chat, file *TGFileInfo, msgID int32) error {
@@ -311,7 +315,16 @@ func dump() error {
 	CheckConfig(config, chats)
 
 	// processing chats
-	if *doListChats {
+	if *doLogout {
+		if err := tgLogout(tg); err != nil {
+			return merry.Wrap(err)
+		}
+		log.Info("logged out")
+		if err := os.Remove(config.SessionFilePath); err != nil {
+			return merry.Wrap(err)
+		}
+		log.Info("removed session file %s", config.SessionFilePath)
+	} else if *doListChats {
 		green := color.New(color.FgGreen).SprintFunc()
 		yellow := color.New(color.FgYellow).SprintFunc()
 		grayf := color.New(color.FgHiBlack).SprintfFunc()
@@ -332,10 +345,6 @@ func dump() error {
 			}
 			log.Info(colf("%-7s %10d %s  %s (%s)", chat.Type, chat.ID, historyLimitStr, title, chat.Username))
 		}
-
-	}else if (*doLogout){
-
-		tgLogout(tg)
 
 	} else {
 		// saveing user info
