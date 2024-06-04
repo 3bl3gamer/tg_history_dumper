@@ -12,7 +12,6 @@ import (
 	"github.com/3bl3gamer/tgclient"
 	"github.com/3bl3gamer/tgclient/mtproto"
 	"github.com/ansel1/merry/v2"
-	"github.com/fatih/color"
 	"golang.org/x/net/proxy"
 )
 
@@ -109,13 +108,6 @@ func tgConnect(config *Config, logHandler *LogHandler) (*tgclient.TGClient, *mtp
 		return nil, nil, merry.Wrap(mtproto.WrongRespError(res))
 	}
 	me := users[0].(mtproto.TL_user)
-
-	greenBoldf := color.New(color.FgGreen, color.Bold).SprintfFunc()
-	firstName := mtproto.DerefOr(me.FirstName, "")
-	lastName := mtproto.DerefOr(me.LastName, "")
-	username := mtproto.DerefOr(me.Username, "")
-	log.Info("logged in as %s #%d",
-		greenBoldf("%s (%s)", strings.TrimSpace(firstName+" "+lastName), username), me.ID)
 	return tg, &me, nil
 }
 
@@ -278,6 +270,14 @@ func tgLoadContacts(tg *tgclient.TGClient) (*mtproto.TL_contacts_contacts, error
 		return nil, merry.Wrap(mtproto.WrongRespError(res))
 	}
 	return &contacts, nil
+}
+
+func tgLogout(tg *tgclient.TGClient) error {
+	res := tg.SendSyncRetry(mtproto.TL_auth_logOut{}, time.Second, 0, 30*time.Second)
+	if _, ok := res.(mtproto.TL_auth_loggedOut); !ok {
+		return merry.New(mtproto.UnexpectedTL("logout", res))
+	}
+	return nil
 }
 
 func tgLoadAuths(tg *tgclient.TGClient) ([]mtproto.TL_authorization, error) {

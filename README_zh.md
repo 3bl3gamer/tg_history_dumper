@@ -261,7 +261,9 @@ Usage of tg_history_dumper:
   -dump-sessions string
         enable active sessions dump, use 'write' to enable dump, overrides config.dump_sessions
   -list-chats
-        列出来所有可用的聊天
+        列出来所有可用的聊天, do not dump anything
+  -logout
+        logout and remove session file, do not dump anything
   -out string
         备份目录的路径，将会覆盖 config.out_dir_path
   -session string

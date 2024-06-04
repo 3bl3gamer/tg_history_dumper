@@ -344,7 +344,8 @@ func dump() error {
 	outDirPath := flag.String("out", "", "output directory path, overriders config.out_dir_path")
 	chatTitle := flag.String("chat", "", "title of the chat to dump, overrides config.history")
 	skipStories := flag.Bool("skip-stories", false, "do not dump sotries, overrides config.stories")
-	doListChats := flag.Bool("list-chats", false, "list all available chats")
+	doListChats := flag.Bool("list-chats", false, "list all available chats, do not dump anything")
+	doLogout := flag.Bool("logout", false, "logout and remove session file, do not dump anything")
 	logDebug := flag.Bool("debug", false, "show debug log messages")
 	tgLogDebug := flag.Bool("debug-tg", false, "show debug TGClient log messages")
 	doAccountDump := flag.String("dump-account", "", "enable basic user information dump, use 'write' to enable dump, overriders config.dump_account")
@@ -418,6 +419,15 @@ func dump() error {
 		return merry.Wrap(err)
 	}
 
+	{
+		greenBoldf := color.New(color.FgGreen, color.Bold).SprintfFunc()
+		firstName := mtproto.DerefOr(me.FirstName, "")
+		lastName := mtproto.DerefOr(me.LastName, "")
+		username := mtproto.DerefOr(me.Username, "")
+		log.Info("logged in as %s #%d",
+			greenBoldf("%s (%s)", strings.TrimSpace(firstName+" "+lastName), username), me.ID)
+	}
+
 	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
 	saver.SetFileRequestCallback(func(chat *Chat, file *TGFileInfo, msgID int32, mediaSource MediaFileSource) error {
 		if config.Media.Match(chat, file) == MatchTrue {
@@ -454,7 +464,16 @@ func dump() error {
 	CheckConfig(config, chats)
 
 	// processing chats
-	if *doListChats {
+	if *doLogout {
+		if err := tgLogout(tg); err != nil {
+			return merry.Wrap(err)
+		}
+		log.Info("logged out")
+		if err := os.Remove(config.SessionFilePath); err != nil {
+			return merry.Wrap(err)
+		}
+		log.Info("removed session file %s", config.SessionFilePath)
+	} else if *doListChats {
 		green := color.New(color.FgGreen).SprintFunc()
 		yellow := color.New(color.FgYellow).SprintFunc()
 		grayf := color.New(color.FgHiBlack).SprintfFunc()
@@ -475,6 +494,7 @@ func dump() error {
 			}
 			log.Info(colf("%-7s %10d %s  %s (%s)", chat.Type, chat.ID, historyLimitStr, title, chat.Username))
 		}
+
 	} else {
 		// saving user info
 		if config.DoAccountDump == "write" {
