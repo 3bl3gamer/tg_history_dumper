@@ -122,14 +122,14 @@ func tgGetMessageID(messageTL mtproto.TL) (int32, error) {
 	}
 }
 
-func tgGetMessageStamp(msgTL mtproto.TL) (int32, error) {
+func tgGetMessageIDStampPeer(msgTL mtproto.TL) (int32, int32, mtproto.TL, error) {
 	switch msg := msgTL.(type) {
 	case mtproto.TL_message:
-		return msg.Date, nil
+		return msg.ID, msg.Date, msg.PeerID, nil
 	case mtproto.TL_messageService:
-		return msg.Date, nil
+		return msg.ID, msg.Date, msg.PeerID, nil
 	default:
-		return 0, merry.Wrap(mtproto.WrongRespError(msg))
+		return 0, 0, nil, merry.Wrap(mtproto.WrongRespError(msg))
 	}
 }
 
@@ -220,44 +220,161 @@ func tgExtractChannelData(channel mtproto.TL_channel, lastMessageID int32) *Chat
 
 func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 	chats := make([]*Chat, 0)
-	offsetDate := int32(0)
+	// For deduplication. Chat duplicated may be encountered not only on second and subsequent iterations,
+	// but also when user has pinned chats: these chats will be send in the begining of the first chunk (i.e. on "top")
+	// and __also__ the same chats may be send in subsequent chunks as if these chats were not pinned.
+	chatIDs := make(map[int64]bool)
+
+	iteration := 0
+	maxIterations := 2
+
+	// It is 'min' limit. Because TG can actually send __more__ chats in response.
+	// This happens for small limits and pinned chats: TG always adds some regualr chats after pinned ones.
+	// Though it's not clear how many regular chats there will be. For example,
+	// when there are 3 pinned chats and limit is 1, there will be 7 chats in response: 3 pinned and 4 regular.
+	// If limit is 5, the response will contain 8 chats. If limit is 10 (and 3 still pinned), response will match request (10 chats).
+	minChatsPerSlice := int32(100)
+
+	offsetMessageDate := int32(0)
+	offsetMessageID := int32(0)
+	offsetPeer := mtproto.TL(mtproto.TL_inputPeerEmpty{})
+
 	for {
-		res := tg.SendSyncRetry(mtproto.TL_messages_getDialogs{
-			OffsetPeer: mtproto.TL_inputPeerEmpty{},
-			OffsetDate: offsetDate,
-			Limit:      100,
+		resTL := tg.SendSyncRetry(mtproto.TL_messages_getDialogs{
+			OffsetDate: offsetMessageDate,
+			OffsetID:   offsetMessageID,
+			OffsetPeer: offsetPeer,
+			Limit:      minChatsPerSlice,
 		}, time.Second, 0, 30*time.Second)
 
-		switch slice := res.(type) {
+		var res mtproto.TL_messages_dialogs
+		switch d := resTL.(type) {
 		case mtproto.TL_messages_dialogs:
-			chats, err := tgExtractDialogsData(slice.Dialogs, slice.Chats, slice.Users)
-			if err != nil {
-				return nil, merry.Wrap(err)
-			}
-			return chats, nil
+			res = d
 		case mtproto.TL_messages_dialogsSlice:
-			group, err := tgExtractDialogsData(slice.Dialogs, slice.Chats, slice.Users)
-			if err != nil {
-				return nil, merry.Wrap(err)
-			}
-			chats = append(chats, group...) //TODO: check duplicates
-
-			offsetDate, err = tgGetMessageStamp(slice.Messages[len(slice.Messages)-1])
-			if err != nil {
-				return nil, merry.Wrap(err)
-			}
-
-			if len(chats) == int(slice.Count) {
-				return chats, nil
-			}
-			if len(slice.Dialogs) < 100 {
-				log.Warn("some chats seem missing: got %d in the end, expected %d; retrying from start", len(chats), slice.Count)
-				offsetDate = 0
-			}
+			res.Dialogs, res.Chats, res.Users, res.Messages = d.Dialogs, d.Chats, d.Users, d.Messages
 		default:
-			return nil, merry.Wrap(mtproto.WrongRespError(res))
+			return nil, merry.Wrap(mtproto.WrongRespError(resTL))
+		}
+
+		{
+			s, _ := resTL.(mtproto.TL_messages_dialogsSlice)
+			log.Debug("dialogs chunk, size=%d/%d, messages=%d, iteration=%d",
+				len(res.Dialogs), s.Count, len(res.Messages), iteration)
+		}
+
+		slice, err := tgExtractDialogsData(res.Dialogs, res.Chats, res.Users)
+		if err != nil {
+			return nil, merry.Wrap(err)
+		}
+
+		for _, chat := range slice {
+			if !chatIDs[chat.ID] {
+				if iteration == 0 {
+					chats = append(chats, chat)
+				} else {
+					// On the second and subsequent iterations (if any) we will add only chats with the most recent messages.
+					// It is better to put them at the start of the list (prepend).
+					// It will not match 100% with the sorting on official clients, but such order accuracy is not needed for the dumper.
+					chats = append([]*Chat{chat}, chats...)
+				}
+				chatIDs[chat.ID] = true
+			}
+		}
+
+		if _, ok := resTL.(mtproto.TL_messages_dialogs); ok {
+			break //messages.dialogs contains complete list of all user dialogs
+		}
+		if s, ok := resTL.(mtproto.TL_messages_dialogsSlice); ok && len(chats) == int(s.Count) {
+			break //all dialogs are fetched
+		}
+		if len(res.Dialogs) < int(minChatsPerSlice) {
+			s, _ := resTL.(mtproto.TL_messages_dialogsSlice)
+			log.Debug("last dialog slice size is %d, expexted %d. Looks like we've reached the bottom of dialogs list. "+
+				"But dialogs list is not complete (got only %d of total %d dialogs)",
+				len(res.Dialogs), int(minChatsPerSlice), len(chats), s.Count)
+
+			if iteration < maxIterations-1 {
+				log.Info("looks like dialog list has updated while loading, will retry one more time from the start (check debug log for more info)")
+				offsetMessageDate = 0
+				offsetMessageID = 0
+				offsetPeer = mtproto.TL_inputPeerEmpty{}
+				iteration += 1
+				continue
+			} else {
+				log.Error(nil, "can not load all dialogs: got only %d of total %d; will continue as is but the chat list will be INCOMPLETE",
+					len(chats), s.Count)
+				break
+			}
+		}
+
+		// Making offset values for the next chunk (aka slice).
+		// These values are taken from the last chat in this chunk and from the last message of that chat.
+		// `res.Messages` should contain the last messages, on messages for each chat.
+		// If for some reason such message was not found, trying next chat (i.e. iterating from last to first).
+		// Items in `res.Messages` seems always sorted by message date.
+		// But chats are not! Most of them are sorted by their last message date too, __except pinned ones__.
+		// Pinned chats are always returned first in the first chunk.
+		// So `res.Dialogs` and `res.Messages` sorting is dufferent and we can't just take the last `res.Messages` item for offset.
+		offsetMessageFound := false
+		for i := len(slice) - 1; i >= 0; i-- {
+			chat := slice[i]
+
+			msg, found, err := tgFindMessageByChat(res.Messages, chat.Obj)
+			if err != nil {
+				return nil, merry.Wrap(err)
+			}
+
+			if found {
+				id, date, _, err := tgGetMessageIDStampPeer(msg)
+				if err != nil {
+					return nil, merry.Wrap(err)
+				}
+				inputPeer, err := tgMakeInputPeer(chat.Obj)
+				if err != nil {
+					return nil, merry.Wrap(err)
+				}
+				offsetMessageDate = date
+				offsetMessageID = id
+				offsetPeer = inputPeer
+				offsetMessageFound = true
+				break
+			} else {
+				log.Warn("dialogs: could not find last message for '%s' #%d, trying previous dialog", chat.Title, chat.ID)
+			}
+		}
+		if !offsetMessageFound {
+			log.Error(nil, "could not find last message for any of dialogs in dialog slice; will continue as is but the chat list will be INCOMPLETE")
+			break
 		}
 	}
+	return chats, nil
+}
+func tgFindMessageByChat(messages []mtproto.TL, chatTL mtproto.TL) (mtproto.TL, bool, error) {
+	for _, msg := range messages {
+		_, _, msgPeer, err := tgGetMessageIDStampPeer(msg)
+		if err != nil {
+			return nil, false, merry.Wrap(err)
+		}
+
+		switch chat := chatTL.(type) {
+		case mtproto.TL_user:
+			if m, ok := msgPeer.(mtproto.TL_peerUser); ok && m.UserID == chat.ID {
+				return msg, true, nil
+			}
+		case mtproto.TL_chat:
+			if m, ok := msgPeer.(mtproto.TL_peerChat); ok && m.ChatID == chat.ID {
+				return msg, true, nil
+			}
+		case mtproto.TL_channel:
+			if m, ok := msgPeer.(mtproto.TL_peerChannel); ok && m.ChannelID == chat.ID {
+				return msg, true, nil
+			}
+		default:
+			return nil, false, merry.Wrap(mtproto.WrongRespError(chatTL))
+		}
+	}
+	return nil, false, nil
 }
 
 func tgLoadContacts(tg *tgclient.TGClient) (*mtproto.TL_contacts_contacts, error) {
