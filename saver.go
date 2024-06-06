@@ -338,7 +338,7 @@ func (s JSONFilesHistorySaver) loadChats() error {
 	})
 }
 
-func (s JSONFilesHistorySaver) SaveRelatedUsers(users []mtproto.TL) error {
+func (s *JSONFilesHistorySaver) SaveRelatedUsers(users []mtproto.TL) error {
 	if s.usersData == nil {
 		s.usersData = make(map[int64]*UserData)
 		if err := s.loadUsers(); err != nil {
@@ -375,7 +375,7 @@ func (s JSONFilesHistorySaver) SaveRelatedUsers(users []mtproto.TL) error {
 	return nil
 }
 
-func (s JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
+func (s *JSONFilesHistorySaver) SaveRelatedChats(chats []mtproto.TL) error {
 	if s.chatsData == nil {
 		s.chatsData = make(map[int64]*ChatData)
 		if err := s.loadChats(); err != nil {
