@@ -1,5 +1,5 @@
-github.com/3bl3gamer/tgclient v0.181.3 h1:m6XxWynCRRkPAuLSsTM/ZGhG0jYK2nHTNA8Q8brxr0A=
-github.com/3bl3gamer/tgclient v0.181.3/go.mod h1:DhpEX5C2ZSniXWIueuLtN1KBVSK+JQZP0AU/ZdmhFR0=
+github.com/3bl3gamer/tgclient v0.181.4 h1:p8XckdRGEfpjqDw7lgaWelXe6vNoQ5fFvros8okiO/0=
+github.com/3bl3gamer/tgclient v0.181.4/go.mod h1:DhpEX5C2ZSniXWIueuLtN1KBVSK+JQZP0AU/ZdmhFR0=
 github.com/ansel1/merry/v2 v2.2.1 h1:PJpynLFvIpJkn8ZGgNHLq332zIyBc/wTqp3o42ZpWdU=
 github.com/ansel1/merry/v2 v2.2.1/go.mod h1:K9lCkM6tJ8s7LQVQ0ZmZ0WrB3BCyr+ZDzoqotzzoxpI=
 github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
