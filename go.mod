@@ -3,7 +3,7 @@ module github.com/3bl3gamer/tg_history_dumper
 go 1.18
 
 require (
-	github.com/3bl3gamer/tgclient v0.181.4
+	github.com/3bl3gamer/tgclient v0.181.5
 	github.com/ansel1/merry/v2 v2.2.1
 	github.com/fatih/color v1.17.0
 	github.com/go-test/deep v1.1.0
