@@ -310,7 +310,7 @@ func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 
 		// Making offset values for the next chunk (aka slice).
 		// These values are taken from the last chat in this chunk and from the last message of that chat.
-		// `res.Messages` should contain the last messages, on messages for each chat.
+		// `res.Messages` should contain the last messages, one message for each chat.
 		// If for some reason such message was not found, trying next chat (i.e. iterating from last to first).
 		// Items in `res.Messages` seems always sorted by message date.
 		// But chats are not! Most of them are sorted by their last message date too, __except pinned ones__.
@@ -598,6 +598,7 @@ type TGFileInfo struct {
 	DCID          int32
 	Size          int64
 	FName         string
+	IndexInMsg    int64 //message with paid content may have multiple media files inside
 }
 
 // getBestPhotoSize returns largest photo size of images.
@@ -634,29 +635,30 @@ func getBestPhotoSize(photo mtproto.TL_photo) (sizeType string, sizeBytes int32,
 	return
 }
 
-func tgFindMediaFileInfo(mediaTL mtproto.TL, ctxObjName string, ctxObjID int32) (*TGFileInfo, error) {
+func tgFindMediaFileInfos(mediaTL mtproto.TL, indexInMsg int64, ctxObjName string, ctxObjID int32) ([]TGFileInfo, error) {
 	switch media := mediaTL.(type) {
 	case mtproto.TL_messageMediaPhoto:
 		if _, ok := media.Photo.(mtproto.TL_photoEmpty); ok {
-			log.Error(nil, "got 'photoEmpty' in media of %s #%d", ctxObjName, ctxObjID)
+			log.Error(nil, "got 'photoEmpty' in media of %s #%d item #%d", ctxObjName, ctxObjID, indexInMsg)
 			return nil, nil
 		}
 		photo := media.Photo.(mtproto.TL_photo)
 		sizeType, sizeBytes, err := getBestPhotoSize(photo)
 		if err != nil {
-			return nil, merry.Prependf(err, "image size of %s #%d", ctxObjName, ctxObjID)
+			return nil, merry.Prependf(err, "image size of %s #%d item #%d", ctxObjName, ctxObjID, indexInMsg)
 		}
-		return &TGFileInfo{
+		return []TGFileInfo{{
 			InputLocation: mtproto.TL_inputPhotoFileLocation{
 				ID:            photo.ID,
 				AccessHash:    photo.AccessHash,
 				FileReference: photo.FileReference,
 				ThumbSize:     sizeType,
 			},
-			Size:  int64(sizeBytes),
-			DCID:  photo.DCID,
-			FName: "photo.jpg",
-		}, nil
+			Size:       int64(sizeBytes),
+			DCID:       photo.DCID,
+			FName:      "photo.jpg",
+			IndexInMsg: indexInMsg,
+		}}, nil
 	case mtproto.TL_messageMediaDocument:
 		doc := media.Document.(mtproto.TL_document) //has received TL_documentEmpty here once, after restart is has become TL_document
 		fname := ""
@@ -666,16 +668,17 @@ func tgFindMediaFileInfo(mediaTL mtproto.TL, ctxObjName string, ctxObjID int32) 
 				break
 			}
 		}
-		return &TGFileInfo{
+		return []TGFileInfo{{
 			InputLocation: mtproto.TL_inputDocumentFileLocation{
 				ID:            doc.ID,
 				AccessHash:    doc.AccessHash,
 				FileReference: doc.FileReference,
 			},
-			Size:  doc.Size,
-			DCID:  doc.DCID,
-			FName: fname,
-		}, nil
+			Size:       doc.Size,
+			DCID:       doc.DCID,
+			FName:      fname,
+			IndexInMsg: indexInMsg,
+		}}, nil
 	case mtproto.TL_messageMediaStory:
 		if media.Story == nil {
 			return nil, nil
@@ -684,26 +687,64 @@ func tgFindMediaFileInfo(mediaTL mtproto.TL, ctxObjName string, ctxObjID int32) 
 		if !ok {
 			return nil, merry.Errorf(mtproto.UnexpectedTL("photoSize", media.Story))
 		}
-		return tgFindMediaFileInfo(story.Media, ctxObjName, ctxObjID)
+		return tgFindMediaFileInfos(story.Media, indexInMsg, ctxObjName, ctxObjID)
+	case mtproto.TL_messageMediaPaidMedia:
+		var fileInfos []TGFileInfo
+		for mediaIndex, extMediaTL := range media.ExtendedMedia {
+			switch extMedia := extMediaTL.(type) {
+			case mtproto.TL_messageExtendedMedia:
+				info, err := tgFindMediaFileInfos(extMedia.Media, int64(mediaIndex), ctxObjName, ctxObjID)
+				if err != nil {
+					return nil, merry.Wrap(err)
+				}
+				fileInfos = append(fileInfos, info...)
+			case mtproto.TL_messageExtendedMediaPreview:
+				// no need to save preview: for accessible files there should be a reference to the full file
+				// and for paywall'ed ones there seems only TL_photoStrippedSize with image data
+				// embedded into message (https://core.telegram.org/api/files#stripped-thumbnails)
+			default:
+				log.Error(nil, "unexpected paid media item %#T in media of %s #%d item #%d, skipping",
+					extMediaTL, ctxObjName, ctxObjID, mediaIndex)
+			}
+		}
+		return fileInfos, nil
+	case mtproto.TL_messageMediaUnsupported:
+		log.Error(nil, "media of %s #%d item #%d is insupported, skipping", ctxObjName, ctxObjID, indexInMsg)
+		return nil, nil
+	case mtproto.TL_messageMediaGeo,
+		mtproto.TL_messageMediaContact,
+		mtproto.TL_messageMediaWebPage,
+		mtproto.TL_messageMediaVenue,
+		mtproto.TL_messageMediaGame,
+		mtproto.TL_messageMediaInvoice,
+		mtproto.TL_messageMediaGeoLive,
+		mtproto.TL_messageMediaPoll,
+		mtproto.TL_messageMediaDice,
+		mtproto.TL_messageMediaGiveaway,
+		mtproto.TL_messageMediaGiveawayResults,
+		nil:
+		// nothing to save here
+		return nil, nil
 	default:
+		log.Error(nil, "unexpected media %#T of %s #%d item #%d, skipping", mediaTL, ctxObjName, ctxObjID, indexInMsg)
 		return nil, nil
 	}
 }
 
-func tgFindMessageMediaFileInfo(msgTL mtproto.TL) (*TGFileInfo, error) {
+func tgFindMessageMediaFileInfos(msgTL mtproto.TL) ([]TGFileInfo, error) {
 	msg, ok := msgTL.(mtproto.TL_message)
 	if !ok {
 		return nil, nil
 	}
-	return tgFindMediaFileInfo(msg.Media, "message", msg.ID)
+	return tgFindMediaFileInfos(msg.Media, 0, "message", msg.ID)
 }
 
-func tgFindStoryMediaFileInfo(storyTL mtproto.TL) (*TGFileInfo, error) {
+func tgFindStoryMediaFileInfos(storyTL mtproto.TL) ([]TGFileInfo, error) {
 	story, ok := storyTL.(mtproto.TL_storyItem)
 	if !ok {
 		return nil, nil
 	}
-	return tgFindMediaFileInfo(story.Media, "story", story.ID)
+	return tgFindMediaFileInfos(story.Media, 0, "story", story.ID)
 }
 
 /*

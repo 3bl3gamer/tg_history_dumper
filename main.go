@@ -431,7 +431,7 @@ func dump() error {
 	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
 	saver.SetFileRequestCallback(func(chat *Chat, file *TGFileInfo, msgID int32, mediaSource MediaFileSource) error {
 		if config.Media.Match(chat, file) == MatchTrue {
-			fpath, err := saver.MessageFileFPath(chat, msgID, file.FName, mediaSource)
+			fpath, err := saver.MessageFileFPath(chat, msgID, file.FName, file.IndexInMsg, mediaSource)
 			if err != nil {
 				return merry.Wrap(err)
 			}
