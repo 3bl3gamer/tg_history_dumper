@@ -1,0 +1,98 @@
+{{ define "title" }}Tg History Dumper exported data{{ end }}
+{{ define "header" }}{{ .Chat.Name }}{{ end }}
+
+{{ define "messageBody" }}
+    {{ if .__FileFullPath }}
+        <div class="media_wrap clearfix">
+            {{ if .Media.Photo }}
+                <a class="photo_wrap clearfix pull_left" href="/files/{{ .__ChatFileName }}/{{.__FileFullPath}}">
+                    <img class="photo" src="/files/{{ .__ChatFileName }}/{{.__FileFullPath}}" style="max-width: 260px; max-height: 260px;">
+                </a>
+            {{ else }}
+                <a class="media clearfix pull_left block_link media_file" href="/files/{{ .__ChatFileName }}/{{.__FileFullPath}}">
+                    <div class="fill pull_left">
+
+                    </div>
+
+                    <div class="body">
+                        <div class="title bold">
+                            {{ .__File.Name }}
+                        </div>
+
+                        <div class="status details">
+                            {{ .__File.Size | humanizeSize }}
+                        </div>
+                    </div>
+                </a>
+            {{ end }}
+        </div>
+    {{ end }}
+
+    {{ if .Message }}
+    <div class="text">
+        {{ .Message | nl2br }}
+    </div>
+    {{ end }}
+{{ end }}
+
+{{ define "content" }}
+<div class="page_body chat_page">
+    <div class="history">
+        {{ range .Messages }}
+            <div class="message default clearfix" id="">
+                <div class="pull_left userpic_wrap">
+                    <div class="userpic {{ if .Out }}userpic_default_out{{ else }}userpic_default{{ end }}" style="width: 42px; height: 42px">
+                        <div class="initials" style="line-height: 42px">
+                            {{ if .Out }}
+                                {{ $.Account.FirstLetters }}
+                            {{ else }}
+                                {{ $.Chat.FirstLetters }}
+                            {{ end }}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="body">
+                    <div class="pull_right date details" title="">
+                        {{ .Date | formatDate }}
+                    </div>
+
+                    <div class="from_name">
+                        {{ if .Out }}
+                            {{ $.Account.FirstName }} {{ $.Account.LastName }}
+                        {{ else }}
+                            {{ $.Chat.Name }}
+                        {{ end }}
+                    </div>
+
+                    {{ if .FwdFrom }}
+                        <div class="pull_left forwarded userpic_wrap">
+                            <div class="userpic userpic_default_out" style="width: 42px; height: 42px">
+
+                                <div class="initials" style="line-height: 42px">
+                                    {{ if .FwdFrom.FromName }}
+                                        {{ .FwdFrom.FromName | firstLetters ""}}
+                                    {{ end }}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="forwarded body">
+                            <div class="from_name">
+                                {{ .FwdFrom.FromName}} <span class="date details" title="">{{ .FwdFrom.Date | formatDate }}</span>
+                            </div>
+
+                            {{ template "messageBody" . }}
+                        </div>
+                    {{ else }}
+                        {{ template "messageBody" . }}
+                    {{ end }}
+                </div>
+            </div>
+        {{ else }}
+            No messages
+        {{ end }}
+</div>
+{{ end }}
+
+{{ template "layout.html" . }}

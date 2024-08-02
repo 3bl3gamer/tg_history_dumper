@@ -351,6 +351,7 @@ func dump() error {
 	doAccountDump := flag.String("dump-account", "", "enable basic user information dump, use 'write' to enable dump, overriders config.dump_account")
 	doContactsDump := flag.String("dump-contacts", "", "enable contacts dump, use 'write' to enable dump, overriders config.dump_contacts")
 	doSessionsDump := flag.String("dump-sessions", "", "enable active sessions dump, use 'write' to enable dump, overriders config.dump_sessions")
+	httpAddr := flag.String("preview-http", "", "HTTP service address to browse through the dump")
 	flag.Parse()
 
 	// logging
@@ -551,6 +552,14 @@ func dump() error {
 			}
 		}
 	}
+
+	if *httpAddr != "" {
+		if err := serveHttp(*httpAddr, config, saver); err != nil {
+			log.Error(nil, "ListenAndServe %s: %v", *httpAddr, err)
+			os.Exit(2)
+		}
+	}
+
 	return nil
 }
 
