@@ -172,14 +172,20 @@ func firstLetterUpper(str string) string {
 }
 
 func applyEntities(strText string, entities []interface{}) []interface{} {
+	type HTMLInsertion struct {
+		html            string
+		hasClosingBlock bool
+	}
+
 	runeText := []rune(strText)
 	text := utf16.Encode(runeText)
-	htmlInserts := make([]string, len(text)+1)
+	htmlInserts := make([]HTMLInsertion, len(text)+1)
 
 	for _, entAny := range entities {
 		if ent, ok := entAny.(map[string]interface{}); ok {
 			entOpen := ""
 			entClose := ""
+			isBlock := false
 			switch ent["_"] {
 			case "TL_messageEntityTextURL":
 				href := addDefaultScheme(ent["URL"].(string), "http")
@@ -204,38 +210,57 @@ func applyEntities(strText string, entities []interface{}) []interface{} {
 				entOpen, entClose = `<code>`, `</code>`
 			case "TL_messageEntityPre":
 				entOpen, entClose = `<pre>`, `</pre>`
+				isBlock = true
 			case "TL_messageEntityBlockquote":
 				entOpen, entClose = `<blockquote>`, `</blockquote>`
+				isBlock = true
 			}
 
 			if entOpen != "" {
 				entOffset := int64(ent["Offset"].(float64))
 				entLength := int64(ent["Length"].(float64))
-				htmlInserts[entOffset] += entOpen
-				htmlInserts[entOffset+entLength] = entClose + htmlInserts[entOffset+entLength]
+
+				htmlInserts[entOffset].html += entOpen
+				htmlInserts[entOffset+entLength].html = entClose + htmlInserts[entOffset+entLength].html
+				if isBlock {
+					htmlInserts[entOffset+entLength].hasClosingBlock = true
+				}
 			}
 		}
 	}
 
 	var res []interface{}
 	lastEntityEnd := 0
-	for i, html := range htmlInserts {
-		if html != "" {
-			if lastEntityEnd < i {
-				lines := strings.Split(string(utf16.Decode(text[lastEntityEnd:i])), "\n")
-				for i, line := range lines {
-					if i > 0 {
-						res = append(res, template.HTML("<br>"))
-					}
-					res = append(res, line)
-				}
+	lastEntityWasBlock := false
+
+	addTextLines := func(endI int) {
+		lines := strings.Split(string(utf16.Decode(text[lastEntityEnd:endI])), "\n")
+		if lastEntityWasBlock && lines[0] == "" {
+			lines = lines[1:] //removing empty newline after block entity (such as <pre>)
+		}
+		for i, line := range lines {
+			if i > 0 {
+				res = append(res, template.HTML("<br>"))
 			}
-
-			res = append(res, template.HTML(html))
-
-			lastEntityEnd = i
+			if line != "" {
+				res = append(res, line)
+			}
 		}
 	}
+
+	for i, ins := range htmlInserts {
+		if ins.html != "" {
+			if lastEntityEnd < i {
+				addTextLines(i)
+			}
+
+			res = append(res, template.HTML(ins.html))
+
+			lastEntityEnd = i
+			lastEntityWasBlock = ins.hasClosingBlock
+		}
+	}
+	addTextLines(len(text))
 	return res
 }
 
@@ -354,12 +379,13 @@ func (s *Server) renderTemplate(w http.ResponseWriter, tmpl string, data interfa
 				return fmt.Sprintf("%d B", b)
 			}
 
+			prefixes := "KMGTPE"
 			div, exp := int64(unit), 0
-			for n := b / unit; n >= unit; n /= unit {
+			for b > div*unit && exp < len(prefixes)-1 {
 				div *= unit
 				exp++
 			}
-			return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+			return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), prefixes[exp])
 		},
 	})
 
