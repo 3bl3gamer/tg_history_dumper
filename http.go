@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf16"
 )
 
 //go:embed templates/*.html
@@ -35,6 +36,7 @@ type StoredChatInfo struct {
 }
 
 type ChatPageView struct {
+	Account  map[string]interface{}
 	Chat     StoredChatInfo
 	Messages []map[string]interface{}
 }
@@ -57,6 +59,12 @@ func (s *Server) chatsPageHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) chatPageHandler(w http.ResponseWriter, _ *http.Request, chatID int64) {
+	account, err := s.loadAccountData()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	chatInfo, err := s.loadChatByID(chatID)
 	if err != nil {
 		log.Info("couldn't load chat: %v", err)
@@ -83,6 +91,13 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, _ *http.Request, chatID 
 			t["__File"] = file
 			t["__FileFullPath"] = strconv.FormatInt(file.ID, 10) + "_" + file.Name
 		}
+
+		if _, ok := t["Message"]; ok {
+			// parts := splitTextByEntities(t["Message"].(string), t["Entities"].([]interface{}))
+			// parts = splitTextPartsByNewlines(parts)
+			t["__MessageParts"] = applyEntities(t["Message"].(string), t["Entities"].([]interface{}))
+		}
+
 		messages = append(messages, t)
 	})
 
@@ -96,10 +111,9 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, _ *http.Request, chatID 
 		return
 	}
 
-	s.renderTemplate(w, "chat.html", ChatPageView{Chat: chatInfo, Messages: messages})
+	s.renderTemplate(w, "chat.html", ChatPageView{Account: account, Chat: chatInfo, Messages: messages})
 }
 
-/*
 func (s *Server) loadAccountData() (map[string]interface{}, error) {
 	account := make(map[string]interface{})
 	n := 0
@@ -130,7 +144,6 @@ func (s *Server) loadAccountData() (map[string]interface{}, error) {
 
 	return account, nil
 }
-*/
 
 func extractFirstTwoLetters(firstName string, lastName string) string {
 	if firstName != "" && lastName != "" {
@@ -156,6 +169,88 @@ func firstLetterUpper(str string) string {
 		return string(unicode.ToUpper(c))
 	}
 	return ""
+}
+
+func applyEntities(strText string, entities []interface{}) []interface{} {
+	runeText := []rune(strText)
+	text := utf16.Encode(runeText)
+	htmlInserts := make([]string, len(text)+1)
+
+	for _, entAny := range entities {
+		if ent, ok := entAny.(map[string]interface{}); ok {
+			entOpen := ""
+			entClose := ""
+			switch ent["_"] {
+			case "TL_messageEntityTextURL":
+				href := addDefaultScheme(ent["URL"].(string), "http")
+				entOpen = `<a href="` + href + `" target="_blank">`
+				entClose = `</a>`
+			case "TL_messageEntityURL":
+				entOffset := int64(ent["Offset"].(float64))
+				entLength := int64(ent["Length"].(float64))
+				href := string(utf16.Decode(text[entOffset : entOffset+entLength]))
+				href = addDefaultScheme(href, "http")
+				entOpen = `<a href="` + href + `" target="_blank">`
+				entClose = `</a>`
+			case "TL_messageEntityBold":
+				entOpen, entClose = `<b>`, `</b>`
+			case "TL_messageEntityItalic":
+				entOpen, entClose = `<i>`, `</i>`
+			case "TL_messageEntityUnderline":
+				entOpen, entClose = `<u>`, `</u>`
+			case "TL_messageEntityStrike":
+				entOpen, entClose = `<s>`, `</s>`
+			case "TL_messageEntityCode":
+				entOpen, entClose = `<code>`, `</code>`
+			case "TL_messageEntityPre":
+				entOpen, entClose = `<pre>`, `</pre>`
+			case "TL_messageEntityBlockquote":
+				entOpen, entClose = `<blockquote>`, `</blockquote>`
+			}
+
+			if entOpen != "" {
+				entOffset := int64(ent["Offset"].(float64))
+				entLength := int64(ent["Length"].(float64))
+				htmlInserts[entOffset] += entOpen
+				htmlInserts[entOffset+entLength] = entClose + htmlInserts[entOffset+entLength]
+			}
+		}
+	}
+
+	var res []interface{}
+	lastEntityEnd := 0
+	for i, html := range htmlInserts {
+		if html != "" {
+			if lastEntityEnd < i {
+				lines := strings.Split(string(utf16.Decode(text[lastEntityEnd:i])), "\n")
+				for i, line := range lines {
+					if i > 0 {
+						res = append(res, template.HTML("<br>"))
+					}
+					res = append(res, line)
+				}
+			}
+
+			res = append(res, template.HTML(html))
+
+			lastEntityEnd = i
+		}
+	}
+	return res
+}
+
+// https://datatracker.ietf.org/doc/html/rfc1738#section-5
+var urlSchemeRe = regexp.MustCompile(`(?i)^[a-z][a-z0-9+.\-]*:`)
+
+func addDefaultScheme(url, defaultScheme string) string {
+	scheme := urlSchemeRe.FindString(url)
+	if scheme == "" {
+		if !strings.HasPrefix(url, "//") {
+			url = "//" + url
+		}
+		url = defaultScheme + ":" + url
+	}
+	return url
 }
 
 func (s *Server) loadChats() ([]StoredChatInfo, error) {
@@ -249,8 +344,8 @@ func (s *Server) renderTemplate(w http.ResponseWriter, tmpl string, data interfa
 		"formatDate": func(date interface{}) string {
 			return time.Unix(int64(date.(float64)), 0).Format("02.01.2006 15:04:05")
 		},
-		"nl2br": func(text string) template.HTML {
-			return template.HTML(strings.Replace(text, "\n", "<br>", -1))
+		"safe_url": func(s string) template.URL {
+			return template.URL(s)
 		},
 		"firstLetters": extractFirstTwoLetters,
 		"humanizeSize": func(b int64) string {

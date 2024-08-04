@@ -28,9 +28,9 @@
         </div>
     {{ end }}
 
-    {{ if .Message }}
+    {{ if .__MessageParts }}
     <div class="text">
-        {{ .Message | nl2br }}
+        {{ range .__MessageParts }}{{ . }}{{ end }}
     </div>
     {{ end }}
 {{ end }}
