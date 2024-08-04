@@ -351,6 +351,7 @@ func dump() error {
 	doAccountDump := flag.String("dump-account", "", "enable basic user information dump, use 'write' to enable dump, overriders config.dump_account")
 	doContactsDump := flag.String("dump-contacts", "", "enable contacts dump, use 'write' to enable dump, overriders config.dump_contacts")
 	doSessionsDump := flag.String("dump-sessions", "", "enable active sessions dump, use 'write' to enable dump, overriders config.dump_sessions")
+	httpAddr := flag.String("preview-http", "", "HTTP service address to browse through the dump")
 	flag.Parse()
 
 	// logging
@@ -413,6 +414,17 @@ func dump() error {
 		os.Exit(2)
 	}
 
+	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
+
+	if *httpAddr != "" {
+		if err := serveHttp(*httpAddr, config, saver); err != nil {
+			log.Error(nil, "ListenAndServe %s: %v", *httpAddr, err)
+			os.Exit(2)
+		}
+
+		return nil
+	}
+
 	// tg setup
 	tg, me, err := tgConnect(config, &tgLogHandler)
 	if err != nil {
@@ -428,7 +440,6 @@ func dump() error {
 			greenBoldf("%s (%s)", strings.TrimSpace(firstName+" "+lastName), username), me.ID)
 	}
 
-	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
 	saver.SetFileRequestCallback(func(chat *Chat, file *TGFileInfo, msgID int32, mediaSource MediaFileSource) error {
 		if config.Media.Match(chat, file) == MatchTrue {
 			fpath, err := saver.MessageFileFPath(chat, msgID, file.FName, file.IndexInMsg, mediaSource)
@@ -551,6 +562,7 @@ func dump() error {
 			}
 		}
 	}
+
 	return nil
 }
 

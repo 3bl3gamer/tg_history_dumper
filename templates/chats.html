@@ -1,0 +1,41 @@
+{{ define "title" }}Tg History Dumper exported data{{ end }}
+{{ define "header" }}Chats{{ end }}
+
+{{ define "content" }}
+<div class="page_body list_page">
+
+    <div class="page_about details">
+        This page lists all chats from this export.
+    </div>
+
+    <div class="entry_list">
+        {{ range . }}
+            <a class="entry block_link clearfix" href="/chats/{{ .ID }}">
+                <div class="pull_left userpic_wrap">
+                    <div class="userpic userpic_default" style="width: 48px; height: 48px">
+                        <div class="initials" style="line-height: 48px">
+                            {{ .FirstLetters }}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="body">
+                    <div class="pull_right info details">
+
+                    </div>
+
+                    <div class="name bold">
+                        {{ .Name }}
+                    </div>
+                </div>
+            </a>
+        {{ else }}
+            No chats available
+        {{ end }}
+
+    </div>
+
+</div>
+{{ end }}
+
+{{ template "layout.html" . }}
