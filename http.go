@@ -22,10 +22,9 @@ var templatesFS embed.FS
 var staticFS embed.FS
 
 type Server struct {
-	config    *Config
-	saver     *JSONFilesHistorySaver
-	mux       *http.ServeMux
-	templates *template.Template
+	config *Config
+	saver  *JSONFilesHistorySaver
+	mux    *http.ServeMux
 }
 
 type StoredChatInfo struct {
@@ -36,7 +35,6 @@ type StoredChatInfo struct {
 }
 
 type ChatPageView struct {
-	Account  map[string]interface{}
 	Chat     StoredChatInfo
 	Messages []map[string]interface{}
 }
@@ -58,13 +56,7 @@ func (s *Server) chatsPageHandler(w http.ResponseWriter, r *http.Request) {
 	s.renderTemplate(w, "chats.html", chatInfos)
 }
 
-func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request, chatID int64) {
-	account, err := s.loadAccountData()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
+func (s *Server) chatPageHandler(w http.ResponseWriter, _ *http.Request, chatID int64) {
 	chatInfo, err := s.loadChatByID(chatID)
 	if err != nil {
 		log.Info("couldn't load chat: %v", err)
@@ -104,9 +96,10 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request, chatID 
 		return
 	}
 
-	s.renderTemplate(w, "chat.html", ChatPageView{Account: account, Chat: chatInfo, Messages: messages})
+	s.renderTemplate(w, "chat.html", ChatPageView{Chat: chatInfo, Messages: messages})
 }
 
+/*
 func (s *Server) loadAccountData() (map[string]interface{}, error) {
 	account := make(map[string]interface{})
 	n := 0
@@ -137,31 +130,36 @@ func (s *Server) loadAccountData() (map[string]interface{}, error) {
 
 	return account, nil
 }
+*/
 
 func extractFirstTwoLetters(firstName string, lastName string) string {
 	if firstName != "" && lastName != "" {
-		return fmt.Sprintf("%c%c", unicode.ToUpper(rune(firstName[0])), unicode.ToUpper(rune(lastName[0])))
+		return firstLetterUpper(firstName) + firstLetterUpper(lastName)
 	}
 
-	name := ""
-
-	if firstName != "" {
-		name = firstName
-	} else {
+	name := firstName
+	if name == "" {
 		name = lastName
 	}
 
 	words := strings.Fields(name)
 	if len(words) >= 2 {
-		return fmt.Sprintf("%c%c", unicode.ToUpper(rune(words[0][0])), unicode.ToUpper(rune(words[1][0])))
+		return firstLetterUpper(words[0]) + firstLetterUpper(words[1])
 	} else if len(words) == 1 {
-		return fmt.Sprintf("%c", unicode.ToUpper(rune(words[0][0])))
+		return firstLetterUpper(words[0])
+	}
+	return ""
+}
+
+func firstLetterUpper(str string) string {
+	for _, c := range str {
+		return string(unicode.ToUpper(c))
 	}
 	return ""
 }
 
 func (s *Server) loadChats() ([]StoredChatInfo, error) {
-	files, err := ioutil.ReadDir(s.saver.Dirpath)
+	files, err := os.ReadDir(s.saver.Dirpath)
 	if err != nil {
 		return nil, fmt.Errorf("couldn't open history directory %s: %w", s.saver.Dirpath, err)
 	}
@@ -311,13 +309,13 @@ func serveHttp(addr string, config *Config, saver *JSONFilesHistorySaver) error 
 	mux.Handle("/", http.RedirectHandler("/chats/", http.StatusFound))
 	mux.HandleFunc("/chats/", server.chatsPageHandler)
 
-	filesDir := http.Dir("./history/files")
+	filesDir := http.Dir(config.OutDirPath + "/files")
 	mux.Handle("/files/", http.StripPrefix("/files/", http.FileServer(filesDir)))
 
 	staticFS, _ := fs.Sub(staticFS, "static")
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
-	log.Info("Starting server on %s", addr)
+	log.Info("Starting server on http://%s", addr) //"http://" makes the address openable with Ctrl+Click in some terminal emulators (like GNOME Terminal)
 	if err := http.ListenAndServe(addr, server); err != nil {
 		return err
 	}

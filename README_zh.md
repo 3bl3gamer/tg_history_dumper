@@ -266,6 +266,8 @@ Usage of tg_history_dumper:
         logout and remove session file, do not dump anything
   -out string
         备份目录的路径，将会覆盖 config.out_dir_path
+  -preview-http string
+        HTTP service address to browse through the dump
   -session string
         session 文件路径，将会覆盖 config.session_file_path
   -skip-stories

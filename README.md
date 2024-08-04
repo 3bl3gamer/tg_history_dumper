@@ -262,6 +262,8 @@ Usage of tg_history_dumper:
         logout and remove session file, do not dump anything
   -out string
         output directory path, overrides config.out_dir_path
+  -preview-http string
+        HTTP service address to browse through the dump
   -session string
         session file path, overrides config.session_file_path
   -skip-stories

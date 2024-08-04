@@ -417,12 +417,8 @@ func dump() error {
 	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
 
 	if *httpAddr != "" {
-		if err := serveHttp(*httpAddr, config, saver); err != nil {
-			log.Error(nil, "ListenAndServe %s: %v", *httpAddr, err)
-			os.Exit(2)
-		}
-
-		return nil
+		err := serveHttp(*httpAddr, config, saver)
+		return merry.Prepend(err, "http preview")
 	}
 
 	// tg setup
