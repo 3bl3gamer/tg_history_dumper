@@ -1,6 +1,6 @@
 module github.com/3bl3gamer/tg_history_dumper
 
-go 1.18
+go 1.22
 
 require (
 	github.com/3bl3gamer/tgclient v0.185.0

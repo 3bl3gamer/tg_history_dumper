@@ -417,7 +417,7 @@ func dump() error {
 	saver := &JSONFilesHistorySaver{Dirpath: config.OutDirPath}
 
 	if *httpAddr != "" {
-		err := serveHttp(*httpAddr, config, saver)
+		err := servePreviewHttp(*httpAddr, config, saver)
 		return merry.Prepend(err, "http preview")
 	}
 

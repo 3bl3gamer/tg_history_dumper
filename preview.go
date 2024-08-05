@@ -16,10 +16,10 @@ import (
 	"unicode/utf16"
 )
 
-//go:embed templates/*.html
+//go:embed preview_templates/*.html
 var templatesFS embed.FS
 
-//go:embed static/*
+//go:embed preview_static/*
 var staticFS embed.FS
 
 type Server struct {
@@ -58,7 +58,13 @@ func (s *Server) chatsPageHandler(w http.ResponseWriter, r *http.Request) {
 	s.renderTemplate(w, "chats.html", chatInfos)
 }
 
-func (s *Server) chatPageHandler(w http.ResponseWriter, _ *http.Request, chatID int64) {
+func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
+	chatID, err := strconv.ParseInt(r.PathValue("chatID"), 10, 64)
+	if err != nil {
+		log.Info("invalid chat ID: %v", err)
+		http.Error(w, "invalid chat ID", http.StatusBadRequest)
+	}
+
 	account, err := s.loadAccountData()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -181,6 +187,10 @@ func applyEntities(strText string, entities []interface{}) []interface{} {
 	text := utf16.Encode(runeText)
 	htmlInserts := make([]HTMLInsertion, len(text)+1)
 
+	// entities can include other entities, but intersection seems not allowed:
+	// sending message with `"entities":[{"type":"bold","offset":0,"length":6}, {"type":"italic","offset":3,"length":9}]`
+	// results in error: `Bad Request: entity beginning at UTF-16 offset 3 ends after the end of the text at UTF-16 offset 12`
+
 	for _, entAny := range entities {
 		if ent, ok := entAny.(map[string]interface{}); ok {
 			entOpen := ""
@@ -267,6 +277,7 @@ func applyEntities(strText string, entities []interface{}) []interface{} {
 // https://datatracker.ietf.org/doc/html/rfc1738#section-5
 var urlSchemeRe = regexp.MustCompile(`(?i)^[a-z][a-z0-9+.\-]*:`)
 
+// "example.com" -> "http://example.com"
 func addDefaultScheme(url, defaultScheme string) string {
 	scheme := urlSchemeRe.FindString(url)
 	if scheme == "" {
@@ -390,7 +401,7 @@ func (s *Server) renderTemplate(w http.ResponseWriter, tmpl string, data interfa
 	})
 
 	// Parse the layout and the specific template
-	templates, err := templates.ParseFS(templatesFS, "templates/layout.html", "templates/"+tmpl)
+	templates, err := templates.ParseFS(templatesFS, "preview_templates/layout.html", "preview_templates/"+tmpl)
 	if err != nil {
 		log.Info("Error parsing templates: %v", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -405,21 +416,10 @@ func (s *Server) renderTemplate(w http.ResponseWriter, tmpl string, data interfa
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if strings.HasPrefix(r.URL.Path, "/chats/") {
-		parts := strings.Split(r.URL.Path, "/")
-		if len(parts) == 3 {
-			chatID, err := strconv.ParseInt(parts[2], 10, 64)
-			if err == nil {
-				s.chatPageHandler(w, r, chatID)
-				return
-			}
-		}
-	}
-
 	s.mux.ServeHTTP(w, r)
 }
 
-func serveHttp(addr string, config *Config, saver *JSONFilesHistorySaver) error {
+func servePreviewHttp(addr string, config *Config, saver *JSONFilesHistorySaver) error {
 	server := &Server{
 		config: config,
 		saver:  saver,
@@ -429,11 +429,12 @@ func serveHttp(addr string, config *Config, saver *JSONFilesHistorySaver) error 
 	server.mux = mux
 	mux.Handle("/", http.RedirectHandler("/chats/", http.StatusFound))
 	mux.HandleFunc("/chats/", server.chatsPageHandler)
+	mux.HandleFunc("/chats/{chatID}", server.chatPageHandler)
 
 	filesDir := http.Dir(config.OutDirPath + "/files")
 	mux.Handle("/files/", http.StripPrefix("/files/", http.FileServer(filesDir)))
 
-	staticFS, _ := fs.Sub(staticFS, "static")
+	staticFS, _ := fs.Sub(staticFS, "preview_static")
 	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(staticFS))))
 
 	log.Info("Starting server on http://%s", addr) //"http://" makes the address openable with Ctrl+Click in some terminal emulators (like GNOME Terminal)
