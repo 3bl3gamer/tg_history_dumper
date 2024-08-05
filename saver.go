@@ -111,6 +111,37 @@ func matchFNameIDPrefix(fname string) (int64, string, bool) {
 	return 0, "", false
 }
 
+func messageFileName(msgID int32, indexInMsg int64, fname string) string {
+	suffix := "Media"
+	if indexInMsg != 0 { //message with paid content may have multiple media files inside, will name them _Media_, _Media1_, _Media2_, etc.
+		suffix += strconv.FormatInt(indexInMsg, 10)
+	}
+	if fname != "" {
+		suffix += "_" + fname
+	}
+	fnamePrefix := fnameIDPrefix(int64(msgID))
+	return clampNameForFS(fnamePrefix + escapeNameForFS(suffix))
+}
+
+func matchMessageFileName(name string) (int64, int64, string, bool) {
+	msgID, suffix, ok := matchFNameIDPrefix(name)
+	if !ok {
+		return 0, 0, "", false
+	}
+
+	suffixWoMedia, found := strings.CutPrefix(suffix, "Media")
+	if !found {
+		return msgID, 0, suffix, true //names like "123_no_media_prefix", just in case
+	}
+
+	indexInMsg, fsName, ok := matchFNameIDPrefix(suffixWoMedia)
+	if !ok {
+		fsName, _ = strings.CutPrefix(suffixWoMedia, "_")
+		return msgID, 0, fsName, true //"123_Media_some_name"
+	}
+	return msgID, indexInMsg, fsName, true //"123_Media2_some_name"
+}
+
 func escapeNameForFS(name string) string {
 	chars := `/:` //TODO: is it enough?
 	if runtime.GOOS == "windows" {
@@ -251,15 +282,7 @@ func (s JSONFilesHistorySaver) MessageFileFPath(chat *Chat, msgID int32, fname s
 	if err != nil {
 		return "", merry.Wrap(err)
 	}
-	suffix := "Media"
-	if indexInMsg != 0 { //message with paid content may have multiple media files inside, will name them _Media_, _Media1_, _Media2_, etc.
-		suffix += strconv.FormatInt(indexInMsg, 10)
-	}
-	if fname != "" {
-		suffix += "_" + fname
-	}
-	fnamePrefix := fnameIDPrefix(int64(msgID))
-	return dirPath + "/" + clampNameForFS(fnamePrefix+escapeNameForFS(suffix)), nil
+	return dirPath + "/" + messageFileName(msgID, indexInMsg, fname), nil
 }
 
 func (s JSONFilesHistorySaver) makeDir(dirpath string) error {
@@ -603,7 +626,9 @@ type SavedChatEntry struct {
 
 func (s *JSONFilesHistorySaver) ReadSavedChatsList() ([]SavedChatEntry, error) {
 	entries, err := os.ReadDir(s.chatsMessagesDirpath())
-	if err != nil {
+	if os.IsNotExist(err) {
+		return []SavedChatEntry{}, nil
+	} else if err != nil {
 		return nil, merry.Wrap(err)
 	}
 
@@ -626,11 +651,12 @@ func (s *JSONFilesHistorySaver) ReadSavedChatsList() ([]SavedChatEntry, error) {
 }
 
 type SavedFilesEntry struct {
-	MessageID int64
-	// // original file name which may have been modified to be filesystem-safe (i.e. "/" replaced with "_")
-	// FSOriginalName string
-	FName string
-	FPath string
+	MessageID      int64
+	IndexInMessage int64
+	// original file name which may have been modified to be filesystem-safe (i.e. "/" replaced with "_")
+	FSOriginalName string
+	FName          string
+	FPath          string
 }
 
 func (s *JSONFilesHistorySaver) ReadSavedChatFilesList(chatID int64) ([]SavedFilesEntry, error) {
@@ -650,16 +676,18 @@ func (s *JSONFilesHistorySaver) ReadSavedChatFilesList(chatID int64) ([]SavedFil
 
 	items := make([]SavedFilesEntry, 0, len(entries))
 	for _, entry := range entries {
-		msgID, _, ok := matchFNameIDPrefix(entry.Name())
+		msgID, indexInMsg, fsName, ok := matchMessageFileName(entry.Name())
 		if !ok {
 			continue
 		}
 
 		fpath := filesDirpath + "/" + entry.Name()
 		items = append(items, SavedFilesEntry{
-			MessageID: msgID,
-			FPath:     fpath,
-			FName:     entry.Name(),
+			MessageID:      msgID,
+			IndexInMessage: indexInMsg,
+			FSOriginalName: fsName,
+			FPath:          fpath,
+			FName:          entry.Name(),
 		})
 	}
 	return items, nil

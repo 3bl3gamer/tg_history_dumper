@@ -2,25 +2,25 @@
 {{ define "header" }}{{ .Chat.Name }}{{ end }}
 
 {{ define "messageBody" }}
-    {{ if .__FileFullWebPath }}
+    {{ range .__Files }}
         <div class="media_wrap clearfix">
-            {{ if .Media.Photo }}
-                <a class="photo_wrap clearfix pull_left" href="{{.__FileFullWebPath}}">
-                    <img class="photo" src="{{.__FileFullWebPath}}" style="max-width: 260px; max-height: 260px;">
+            {{ if or $.Media.Photo $.Media.ExtendedMedia }}
+                <a class="photo_wrap clearfix pull_left" href="{{.FullWebPath}}">
+                    <img class="photo" src="{{.FullWebPath}}" style="max-width: 260px; max-height: 260px;">
                 </a>
             {{ else }}
-                <a class="media clearfix pull_left block_link media_file" href="{{.__FileFullWebPath}}">
+                <a class="media clearfix pull_left block_link media_file" href="{{.FullWebPath}}">
                     <div class="fill pull_left">
 
                     </div>
 
                     <div class="body">
                         <div class="title bold">
-                            {{ .__File.Name }}
+                            {{ .Name }}
                         </div>
 
                         <div class="status details">
-                            {{ .__File.Size | humanizeSize }}
+                            {{ .Size | humanizeSize }}
                         </div>
                     </div>
                 </a>

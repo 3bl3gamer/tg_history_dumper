@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -44,10 +45,11 @@ type ChatPageView struct {
 }
 
 type File struct {
-	ID    int64
-	Name  string
-	FPath string
-	Size  int64
+	ID          int64
+	Name        string
+	FullWebPath string
+	Index       int64
+	Size        int64
 }
 
 func (s *Server) chatsPageHandler(w http.ResponseWriter, r *http.Request) {
@@ -93,10 +95,8 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 
 	loadResult := loadRelated(chatInfo.FilePath, func(t map[string]interface{}) {
 		id := int64(t["ID"].(float64))
-		if file, ok := filesByIds[id]; ok {
-			relPath, _ := filepath.Rel(s.saver.Dirpath, file.FPath)
-			t["__File"] = file
-			t["__FileFullWebPath"] = "/" + relPath
+		if files, ok := filesByIds[id]; ok {
+			t["__Files"] = files
 		}
 
 		if _, ok := t["Message"]; ok {
@@ -333,8 +333,8 @@ func (s *Server) loadChatByID(chatID int64) (StoredChatInfo, error) {
 	return StoredChatInfo{}, fmt.Errorf("chat with ID %d not found", chatID)
 }
 
-func (s *Server) loadChatFiles(chat StoredChatInfo) (map[int64]File, error) {
-	fileNamesById := make(map[int64]File)
+func (s *Server) loadChatFiles(chat StoredChatInfo) (map[int64][]File, error) {
+	filesById := make(map[int64][]File)
 
 	files, err := s.saver.ReadSavedChatFilesList(chat.ID)
 	if err != nil {
@@ -346,15 +346,21 @@ func (s *Server) loadChatFiles(chat StoredChatInfo) (map[int64]File, error) {
 		if err != nil {
 			return nil, merry.Wrap(err)
 		}
-		fileNamesById[file.MessageID] = File{
-			ID:    file.MessageID,
-			Name:  file.FName,
-			FPath: file.FPath,
-			Size:  stat.Size(),
-		}
+		relPath, _ := filepath.Rel(s.saver.Dirpath, file.FPath)
+
+		filesById[file.MessageID] = append(filesById[file.MessageID], File{
+			Name:        file.FName,
+			FullWebPath: "/" + relPath,
+			Index:       file.IndexInMessage,
+			Size:        stat.Size(),
+		})
 	}
 
-	return fileNamesById, nil
+	for _, files := range filesById {
+		sort.Slice(files, func(i, j int) bool { return files[i].Index < files[j].Index })
+	}
+
+	return filesById, nil
 }
 
 func (s *Server) renderTemplate(w http.ResponseWriter, tmpl string, data interface{}) {
