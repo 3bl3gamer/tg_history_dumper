@@ -641,6 +641,10 @@ func (s *JSONFilesHistorySaver) ReadSavedChatFilesList(chatID int64) ([]SavedFil
 
 	entries, err := os.ReadDir(filesDirpath)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return make([]SavedFilesEntry, 0), nil
+		}
+
 		return nil, merry.Wrap(err)
 	}
 
