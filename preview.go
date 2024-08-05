@@ -196,10 +196,14 @@ func applyEntities(strText string, entities []interface{}) []interface{} {
 			entClose := ""
 			isBlock := false
 			switch ent["_"] {
+			case "TL_messageEntityTextUrl":
+				fallthrough
 			case "TL_messageEntityTextURL":
 				href := addDefaultScheme(ent["URL"].(string), "http")
 				entOpen = `<a href="` + href + `" target="_blank">`
 				entClose = `</a>`
+			case "TL_messageEntityUrl":
+				fallthrough
 			case "TL_messageEntityURL":
 				entOffset := int64(ent["Offset"].(float64))
 				entLength := int64(ent["Length"].(float64))
