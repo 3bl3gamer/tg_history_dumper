@@ -96,6 +96,21 @@ func fnameIDPrefix(id int64) string {
 	return strconv.FormatInt(id, 10) + "_"
 }
 
+func matchFNameIDPrefix(fname string) (int64, string, bool) {
+	num := int64(0)
+	for i := 0; i < len(fname); i++ {
+		b := fname[i]
+		if '0' <= b && b <= '9' {
+			num = num*10 + int64(b-'0')
+		} else if b == '_' {
+			return num, fname[i+1:], true
+		} else {
+			break
+		}
+	}
+	return 0, "", false
+}
+
 func escapeNameForFS(name string) string {
 	chars := `/:` //TODO: is it enough?
 	if runtime.GOOS == "windows" {
@@ -128,7 +143,7 @@ func clampNameForFS(name string) string {
 	return name[:splitIndex] + ellipsis
 }
 
-func findFPathForID(dirpath string, id int64, defaultName string) (string, error) {
+func findFPathForID(dirpath string, id int64, defaultName string, canRename bool) (string, error) {
 	fnamePrefix := fnameIDPrefix(id)
 	correctFPath := dirpath + "/" + clampNameForFS(fnamePrefix+escapeNameForFS(defaultName))
 
@@ -158,13 +173,17 @@ func findFPathForID(dirpath string, id int64, defaultName string) (string, error
 			fnamePrefix, dirpath, strings.Join(matchedFNames, ", "))
 	}
 
-	if curFPath != correctFPath {
-		log.Info("renaming %s -> %s", curFPath, correctFPath)
-		if err := os.Rename(curFPath, correctFPath); err != nil {
-			return "", merry.Wrap(err)
+	if canRename {
+		if curFPath != correctFPath {
+			log.Info("renaming %s -> %s", curFPath, correctFPath)
+			if err := os.Rename(curFPath, correctFPath); err != nil {
+				return "", merry.Wrap(err)
+			}
 		}
+		return correctFPath, nil
+	} else {
+		return curFPath, nil
 	}
-	return correctFPath, nil
 }
 
 type HistorySaver interface {
@@ -188,7 +207,15 @@ type JSONFilesHistorySaver struct {
 }
 
 func (s JSONFilesHistorySaver) chatMessagesFPath(chat *Chat) (string, error) {
-	return findFPathForID(s.Dirpath, int64(chat.ID), chat.Title)
+	return findFPathForID(s.chatsMessagesDirpath(), int64(chat.ID), chat.Title, true)
+}
+
+func (s JSONFilesHistorySaver) chatsMessagesDirpath() string {
+	return s.Dirpath
+}
+
+func (s JSONFilesHistorySaver) chatsFilesDirpath() string {
+	return s.Dirpath + "/files"
 }
 
 func (s JSONFilesHistorySaver) usersFPath() string {
@@ -212,15 +239,15 @@ func (s JSONFilesHistorySaver) accountFPath() string {
 }
 
 func (s JSONFilesHistorySaver) chatStoriesFPath(chat *Chat) (string, error) {
-	return findFPathForID(s.Dirpath+"/stories", int64(chat.ID), chat.Title)
+	return findFPathForID(s.Dirpath+"/stories", int64(chat.ID), chat.Title, true)
 }
 
 func (s JSONFilesHistorySaver) MessageFileFPath(chat *Chat, msgID int32, fname string, indexInMsg int64, mediaSource MediaFileSource) (string, error) {
-	baseDirPath := s.Dirpath + "/files"
+	baseDirPath := s.chatsFilesDirpath()
 	if mediaSource == StoryMediaFile {
 		baseDirPath += "/stories"
 	}
-	dirPath, err := findFPathForID(baseDirPath, int64(chat.ID), chat.Title)
+	dirPath, err := findFPathForID(baseDirPath, int64(chat.ID), chat.Title, true)
 	if err != nil {
 		return "", merry.Wrap(err)
 	}
@@ -564,4 +591,72 @@ func (s JSONFilesHistorySaver) SaveStories(chat *Chat, stories []mtproto.TL) err
 
 func (s *JSONFilesHistorySaver) SetFileRequestCallback(callback SaveFileCallbackFunc) {
 	s.requestFileFunc = callback
+}
+
+type SavedChatEntry struct {
+	ID int64
+	// chat title which may have been modified to be filesystem-safe (i.e. "/" replaced with "_")
+	FSTitle string
+	FName   string
+	FPath   string
+}
+
+func (s *JSONFilesHistorySaver) ReadSavedChatsList() ([]SavedChatEntry, error) {
+	entries, err := os.ReadDir(s.chatsMessagesDirpath())
+	if err != nil {
+		return nil, merry.Wrap(err)
+	}
+
+	items := make([]SavedChatEntry, 0, len(entries)) //there should be ~3 extra entries, seems ok
+	for _, entry := range entries {
+		id, suffix, ok := matchFNameIDPrefix(entry.Name())
+		if !ok {
+			continue
+		}
+
+		fpath := s.chatsMessagesDirpath() + "/" + entry.Name()
+		items = append(items, SavedChatEntry{
+			ID:      id,
+			FSTitle: suffix,
+			FPath:   fpath,
+			FName:   entry.Name(),
+		})
+	}
+	return items, nil
+}
+
+type SavedFilesEntry struct {
+	MessageID int64
+	// // original file name which may have been modified to be filesystem-safe (i.e. "/" replaced with "_")
+	// FSOriginalName string
+	FName string
+	FPath string
+}
+
+func (s *JSONFilesHistorySaver) ReadSavedChatFilesList(chatID int64) ([]SavedFilesEntry, error) {
+	filesDirpath, err := findFPathForID(s.chatsFilesDirpath(), chatID, "", false)
+	if err != nil {
+		return nil, merry.Wrap(err)
+	}
+
+	entries, err := os.ReadDir(filesDirpath)
+	if err != nil {
+		return nil, merry.Wrap(err)
+	}
+
+	items := make([]SavedFilesEntry, 0, len(entries))
+	for _, entry := range entries {
+		msgID, _, ok := matchFNameIDPrefix(entry.Name())
+		if !ok {
+			continue
+		}
+
+		fpath := filesDirpath + "/" + entry.Name()
+		items = append(items, SavedFilesEntry{
+			MessageID: msgID,
+			FPath:     fpath,
+			FName:     entry.Name(),
+		})
+	}
+	return items, nil
 }

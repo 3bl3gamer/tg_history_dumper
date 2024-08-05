@@ -5,15 +5,17 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
-	"io/ioutil"
 	"net/http"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf16"
+
+	"github.com/ansel1/merry/v2"
 )
 
 //go:embed preview_templates/*.html
@@ -32,7 +34,7 @@ type StoredChatInfo struct {
 	ID           int64
 	Name         string
 	FirstLetters string
-	FileName     string
+	FilePath     string
 }
 
 type ChatPageView struct {
@@ -42,9 +44,10 @@ type ChatPageView struct {
 }
 
 type File struct {
-	ID   int64
-	Name string
-	Size int64
+	ID    int64
+	Name  string
+	FPath string
+	Size  int64
 }
 
 func (s *Server) chatsPageHandler(w http.ResponseWriter, r *http.Request) {
@@ -87,20 +90,16 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	messages := make([]map[string]interface{}, 0, 1000)
-	chatPath := s.saver.Dirpath + "/" + chatInfo.FileName
 
-	loadResult := loadRelated(chatPath, func(t map[string]interface{}) {
-		t["__ChatFileName"] = chatInfo.FileName
-
+	loadResult := loadRelated(chatInfo.FilePath, func(t map[string]interface{}) {
 		id := int64(t["ID"].(float64))
 		if file, ok := filesByIds[id]; ok {
+			relPath, _ := filepath.Rel(s.saver.Dirpath, file.FPath)
 			t["__File"] = file
-			t["__FileFullPath"] = strconv.FormatInt(file.ID, 10) + "_" + file.Name
+			t["__FileFullWebPath"] = "/" + relPath
 		}
 
 		if _, ok := t["Message"]; ok {
-			// parts := splitTextByEntities(t["Message"].(string), t["Entities"].([]interface{}))
-			// parts = splitTextPartsByNewlines(parts)
 			t["__MessageParts"] = applyEntities(t["Message"].(string), t["Entities"].([]interface{}))
 		}
 
@@ -110,7 +109,7 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 	if loadResult != nil {
 		http.Error(
 			w,
-			fmt.Sprintf("couldn't load chat file %s: %s", chatPath, loadResult),
+			fmt.Sprintf("couldn't load chat file %s: %s", chatInfo.FilePath, loadResult),
 			http.StatusInternalServerError,
 		)
 
@@ -290,34 +289,20 @@ func addDefaultScheme(url, defaultScheme string) string {
 }
 
 func (s *Server) loadChats() ([]StoredChatInfo, error) {
-	files, err := os.ReadDir(s.saver.Dirpath)
+	chats, err := s.saver.ReadSavedChatsList()
 	if err != nil {
-		return nil, fmt.Errorf("couldn't open history directory %s: %w", s.saver.Dirpath, err)
+		return nil, merry.Wrap(err)
 	}
 
-	pattern := regexp.MustCompile(`^(\d+)_?(.*)$`)
+	chatInfos := make([]StoredChatInfo, 0, len(chats))
 
-	var chatInfos []StoredChatInfo
-
-	for _, file := range files {
-		if !file.IsDir() {
-			matches := pattern.FindStringSubmatch(file.Name())
-			if matches != nil {
-				id, err := strconv.ParseInt(matches[1], 10, 64)
-				if err != nil {
-					log.Info("Error converting ID: %v", err)
-					continue
-				}
-				name := matches[2]
-				chatInfo := StoredChatInfo{
-					ID:           id,
-					Name:         name,
-					FirstLetters: extractFirstTwoLetters(name, ""),
-					FileName:     file.Name(),
-				}
-				chatInfos = append(chatInfos, chatInfo)
-			}
-		}
+	for _, chat := range chats {
+		chatInfos = append(chatInfos, StoredChatInfo{
+			ID:           chat.ID,
+			Name:         chat.FSTitle,
+			FirstLetters: extractFirstTwoLetters(chat.FSTitle, ""),
+			FilePath:     chat.FPath,
+		})
 	}
 
 	return chatInfos, nil
@@ -341,34 +326,21 @@ func (s *Server) loadChatByID(chatID int64) (StoredChatInfo, error) {
 func (s *Server) loadChatFiles(chat StoredChatInfo) (map[int64]File, error) {
 	fileNamesById := make(map[int64]File)
 
-	dir := s.saver.Dirpath + "/files/" + chat.FileName
-	files, err := ioutil.ReadDir(dir)
+	files, err := s.saver.ReadSavedChatFilesList(chat.ID)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return fileNamesById, nil
-		}
-
-		return nil, fmt.Errorf("couldn't open history files directory %s: %w", dir, err)
+		return nil, merry.Wrap(err)
 	}
 
-	pattern := regexp.MustCompile(`^(\d+)_?(.*)$`)
-
 	for _, file := range files {
-		if !file.IsDir() {
-			matches := pattern.FindStringSubmatch(file.Name())
-			if matches != nil {
-				id, err := strconv.ParseInt(matches[1], 10, 64)
-				if err != nil {
-					log.Info("Error converting ID: %v", err)
-					continue
-				}
-
-				fileNamesById[id] = File{
-					ID:   id,
-					Name: matches[2],
-					Size: file.Size(),
-				}
-			}
+		stat, err := os.Stat(file.FPath)
+		if err != nil {
+			return nil, merry.Wrap(err)
+		}
+		fileNamesById[file.MessageID] = File{
+			ID:    file.MessageID,
+			Name:  file.FName,
+			FPath: file.FPath,
+			Size:  stat.Size(),
 		}
 	}
 
