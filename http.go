@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"html/template"
 	"io/fs"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"regexp"
@@ -72,7 +71,7 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, _ *http.Request, chatID 
 		return
 	}
 
-	filesByIds, err := s.loadChatFiles(chatInfo)
+	chatFilesDirName, filesByIds, err := s.loadChatFiles(chatInfo)
 
 	if err != nil {
 		log.Info("couldn't load chat files: %v", err)
@@ -84,7 +83,7 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, _ *http.Request, chatID 
 	chatPath := s.saver.Dirpath + "/" + chatInfo.FileName
 
 	loadResult := loadRelated(chatPath, func(t map[string]interface{}) {
-		t["__ChatFileName"] = chatInfo.FileName
+		t["__ChatFileName"] = chatFilesDirName
 
 		id := int64(t["ID"].(float64))
 		if file, ok := filesByIds[id]; ok {
@@ -278,35 +277,50 @@ func addDefaultScheme(url, defaultScheme string) string {
 	return url
 }
 
-func (s *Server) loadChats() ([]StoredChatInfo, error) {
-	files, err := os.ReadDir(s.saver.Dirpath)
+func (s *Server) processIdNameFiles(dirPath string, callback func(id int64, name string, file fs.DirEntry) bool) error {
+	files, err := os.ReadDir(dirPath)
 	if err != nil {
-		return nil, fmt.Errorf("couldn't open history directory %s: %w", s.saver.Dirpath, err)
+		return fmt.Errorf("couldn't open directory %s: %w", dirPath, err)
 	}
 
 	pattern := regexp.MustCompile(`^(\d+)_?(.*)$`)
 
-	var chatInfos []StoredChatInfo
-
 	for _, file := range files {
-		if !file.IsDir() {
-			matches := pattern.FindStringSubmatch(file.Name())
-			if matches != nil {
-				id, err := strconv.ParseInt(matches[1], 10, 64)
-				if err != nil {
-					log.Info("Error converting ID: %v", err)
-					continue
-				}
-				name := matches[2]
-				chatInfo := StoredChatInfo{
-					ID:           id,
-					Name:         name,
-					FirstLetters: extractFirstTwoLetters(name, ""),
-					FileName:     file.Name(),
-				}
-				chatInfos = append(chatInfos, chatInfo)
+		matches := pattern.FindStringSubmatch(file.Name())
+		if matches != nil {
+			id, err := strconv.ParseInt(matches[1], 10, 64)
+			if err != nil {
+				log.Info("Error converting ID: %v", err)
+				continue
+			}
+			name := matches[2]
+			next := callback(id, name, file)
+			if !next {
+				return nil
 			}
 		}
+	}
+	return nil
+}
+
+func (s *Server) loadChats() ([]StoredChatInfo, error) {
+	var chatInfos []StoredChatInfo
+
+	err := s.processIdNameFiles(s.saver.Dirpath, func(id int64, name string, file fs.DirEntry) bool {
+		if !file.IsDir() {
+			chatInfo := StoredChatInfo{
+				ID:           id,
+				Name:         name,
+				FirstLetters: extractFirstTwoLetters(name, ""),
+				FileName:     file.Name(),
+			}
+			chatInfos = append(chatInfos, chatInfo)
+		}
+		return true
+	})
+
+	if err != nil {
+		return nil, err
 	}
 
 	return chatInfos, nil
@@ -327,41 +341,49 @@ func (s *Server) loadChatByID(chatID int64) (StoredChatInfo, error) {
 	return StoredChatInfo{}, fmt.Errorf("chat with ID %d not found", chatID)
 }
 
-func (s *Server) loadChatFiles(chat StoredChatInfo) (map[int64]File, error) {
+func (s *Server) loadChatFiles(chat StoredChatInfo) (string, map[int64]File, error) {
 	fileNamesById := make(map[int64]File)
+	chatFilesDirName := ""
 
-	dir := s.saver.Dirpath + "/files/" + chat.FileName
-	files, err := ioutil.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fileNamesById, nil
-		}
+	// sometimes directory name for stored files might not be in sync with chat history file
+	err := s.processIdNameFiles(s.saver.Dirpath+"/files/", func(id int64, name string, file fs.DirEntry) bool {
+		if file.IsDir() && id == chat.ID {
+			if chatFilesDirName == "" {
+				chatFilesDirName = file.Name()
+			} else {
+				// in case more than one directory is found it's not certain which one should be used
+				log.Info("More than one stored files folders found for chat: %s (%d)", chat.Name, chat.ID)
 
-		return nil, fmt.Errorf("couldn't open history files directory %s: %w", dir, err)
-	}
-
-	pattern := regexp.MustCompile(`^(\d+)_?(.*)$`)
-
-	for _, file := range files {
-		if !file.IsDir() {
-			matches := pattern.FindStringSubmatch(file.Name())
-			if matches != nil {
-				id, err := strconv.ParseInt(matches[1], 10, 64)
-				if err != nil {
-					log.Info("Error converting ID: %v", err)
-					continue
-				}
-
-				fileNamesById[id] = File{
-					ID:   id,
-					Name: matches[2],
-					Size: file.Size(),
-				}
+				chatFilesDirName = ""
+				return false
 			}
 		}
+		return true
+	})
+
+	if err != nil || chatFilesDirName == "" {
+		return "", fileNamesById, err
 	}
 
-	return fileNamesById, nil
+	dirPath := s.saver.Dirpath + "/files/" + chatFilesDirName
+
+	err = s.processIdNameFiles(dirPath, func(id int64, name string, file fs.DirEntry) bool {
+		if !file.IsDir() {
+			info, err := file.Info()
+			if err != nil {
+				log.Info("Error getting file %s info: %v", dirPath+"/"+file.Name(), err)
+			}
+
+			fileNamesById[id] = File{
+				ID:   id,
+				Name: name,
+				Size: info.Size(),
+			}
+		}
+		return true
+	})
+
+	return chatFilesDirName, fileNamesById, nil
 }
 
 func (s *Server) renderTemplate(w http.ResponseWriter, tmpl string, data interface{}) {
