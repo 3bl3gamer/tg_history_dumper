@@ -95,12 +95,20 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 
 	loadResult := loadRelated(chatInfo.FilePath, func(t map[string]interface{}) {
 		id := int64(t["ID"].(float64))
-		if files, ok := filesByIds[id]; ok {
-			t["__Files"] = files
-		}
 
-		if _, ok := t["Message"]; ok {
-			t["__MessageParts"] = applyEntities(t["Message"].(string), t["Entities"].([]interface{}))
+		if t["_"] == "TL_messageService" {
+			action := t["Action"].(map[string]interface{})
+			// TL_messageActionChatCreate -> "ChatCreate"
+			message, _ := strings.CutPrefix(action["_"].(string), "TL_messageAction")
+			t["__ServiceMessage"] = message
+		} else {
+			if files, ok := filesByIds[id]; ok {
+				t["__Files"] = files
+			}
+
+			if _, ok := t["Message"]; ok {
+				t["__MessageParts"] = applyEntities(t["Message"].(string), t["Entities"].([]interface{}))
+			}
 		}
 
 		messages = append(messages, t)

@@ -158,6 +158,9 @@ a.block_link:hover {
 .default {
     padding: 10px;
 }
+.service {
+    padding: 8px 10px;
+}
 .default .from_name {
     color: #3892db;
     font-weight: 700;
@@ -174,6 +177,16 @@ a.block_link:hover {
     line-height: 150%;
     unicode-bidi: plaintext;
     text-align: start;
+}
+.service .text {
+    text-align: center;
+}
+.service .text .bubble {
+    background-color: #00000070;
+    color: white;
+    font-weight: bold;
+    border-radius: 32px;
+    padding: 2px 7px;
 }
 .default .reply_to,
 .default .media_wrap {

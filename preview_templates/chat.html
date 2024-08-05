@@ -39,7 +39,18 @@
 <div class="page_body chat_page">
     <div class="history">
         {{ range .Messages }}
-            <div class="message default clearfix" id="">
+            <div class="message {{if .__ServiceMessage}}service{{else}}default{{end}} clearfix" id="">
+                {{ if .__ServiceMessage }}
+                <div class="body">
+                    <div class="pull_right date details" title="">
+                        {{ .Date | formatDate }}
+                    </div>
+
+                    <div class="text">
+                        <span class="bubble">{{ .__ServiceMessage }}</span>
+                    </div>
+                </div>
+                {{ else }}
                 <div class="pull_left userpic_wrap">
                     <div class="userpic {{ if .Out }}userpic_default_out{{ else }}userpic_default{{ end }}" style="width: 42px; height: 42px">
                         <div class="initials" style="line-height: 42px">
@@ -88,6 +99,7 @@
                         {{ template "messageBody" . }}
                     {{ end }}
                 </div>
+                {{ end }}
             </div>
         {{ else }}
             No messages
