@@ -83,6 +83,13 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	usersData := make(map[int64]*UserData, 1000)
+	loadRelated(s.saver.usersFPath(), func(user UserData) {
+		// users file might contain duplicates however no extra logic is needed to handle it
+		// as eventually the map element will be overwritten with the most recent update
+		usersData[user.ID] = &user
+	})
+
 	filesByIds, err := s.loadChatFiles(chatInfo)
 
 	if err != nil {
@@ -108,6 +115,28 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 
 			if _, ok := t["Message"]; ok {
 				t["__MessageParts"] = applyEntities(t["Message"].(string), t["Entities"].([]interface{}))
+			}
+
+			if fromID, ok := t["FromID"].(map[string]interface{}); ok {
+				if fromUserIDStr, ok := fromID["UserID"].(string); ok {
+					fromUserID, err := strconv.ParseInt(fromUserIDStr, 10, 64)
+
+					if err == nil {
+						if fromUser, ok := usersData[fromUserID]; ok {
+							t["__FromFirstName"] = ""
+							t["__FromLastName"] = ""
+
+							if fromUser.FirstName != nil {
+								t["__FromFirstName"] = *fromUser.FirstName
+							}
+							if fromUser.LastName != nil {
+								t["__FromLastName"] = *fromUser.LastName
+							}
+						}
+					} else {
+						log.Info("couldn't parse FromID['UserID'] for message_id=%d : %v", id, err)
+					}
+				}
 			}
 		}
 
