@@ -54,7 +54,9 @@
                 <div class="pull_left userpic_wrap">
                     <div class="userpic {{ if .Out }}userpic_default_out{{ else }}userpic_default{{ end }}" style="width: 42px; height: 42px">
                         <div class="initials" style="line-height: 42px">
-                            {{ if .Out }}
+                            {{ if or .__FromFirstName .__FromLastName }}
+                                {{ firstLetters .__FromFirstName .__FromLastName }}
+                            {{ else if .Out }}
                                 {{ $.Account.FirstLetters }}
                             {{ else }}
                                 {{ $.Chat.FirstLetters }}
@@ -69,7 +71,9 @@
                     </div>
 
                     <div class="from_name">
-                        {{ if .Out }}
+                        {{ if or .__FromFirstName .__FromLastName }}
+                            {{ .__FromFirstName }} {{ .__FromLastName }}
+                        {{ else if .Out }}
                             {{ $.Account.FirstName }} {{ $.Account.LastName }}
                         {{ else }}
                             {{ $.Chat.Name }}
