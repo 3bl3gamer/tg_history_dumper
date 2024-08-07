@@ -117,26 +117,10 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 				t["__MessageParts"] = applyEntities(t["Message"].(string), t["Entities"].([]interface{}))
 			}
 
-			if fromID, ok := t["FromID"].(map[string]interface{}); ok {
-				if fromUserIDStr, ok := fromID["UserID"].(string); ok {
-					fromUserID, err := strconv.ParseInt(fromUserIDStr, 10, 64)
+			t["__FromFirstName"], t["__FromLastName"] = s.getFirstLastNames(t, usersData)
 
-					if err == nil {
-						if fromUser, ok := usersData[fromUserID]; ok {
-							t["__FromFirstName"] = ""
-							t["__FromLastName"] = ""
-
-							if fromUser.FirstName != nil {
-								t["__FromFirstName"] = *fromUser.FirstName
-							}
-							if fromUser.LastName != nil {
-								t["__FromLastName"] = *fromUser.LastName
-							}
-						}
-					} else {
-						log.Info("couldn't parse FromID['UserID'] for message_id=%d : %v", id, err)
-					}
-				}
+			if fwdFromID, ok := t["FwdFrom"].(map[string]interface{}); ok {
+				t["__FwdFromFirstName"], t["__FwdFromLastName"] = s.getFirstLastNames(fwdFromID, usersData)
 			}
 		}
 
@@ -154,6 +138,27 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.renderTemplate(w, "chat.html", ChatPageView{Account: account, Chat: chatInfo, Messages: messages})
+}
+
+func (s *Server) getFirstLastNames(t map[string]interface{}, usersData map[int64]*UserData) (firstName, lastName string) {
+	if fromID, ok := t["FromID"].(map[string]interface{}); ok {
+		if fromUserIDStr, ok := fromID["UserID"].(string); ok {
+			fromUserID, err := strconv.ParseInt(fromUserIDStr, 10, 64)
+			if err == nil {
+				if fromUser, ok := usersData[fromUserID]; ok {
+					if fromUser.FirstName != nil {
+						firstName = *fromUser.FirstName
+					}
+					if fromUser.LastName != nil {
+						lastName = *fromUser.LastName
+					}
+				}
+			} else {
+				log.Info("couldn't parse FromID['UserID'] for %s : %v", fromUserIDStr, err)
+			}
+		}
+	}
+	return
 }
 
 func (s *Server) loadAccountData() (map[string]interface{}, error) {
