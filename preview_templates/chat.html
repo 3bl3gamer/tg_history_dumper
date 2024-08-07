@@ -85,7 +85,9 @@
                             <div class="userpic userpic_default_out" style="width: 42px; height: 42px">
 
                                 <div class="initials" style="line-height: 42px">
-                                    {{ if .FwdFrom.FromName }}
+                                    {{ if or .__FwdFromFirstName .__FwdFromLastName }}
+                                        {{ firstLetters .__FwdFromFirstName .__FwdFromLastName }}
+                                    {{ else if .FwdFrom.FromName }}
                                         {{ .FwdFrom.FromName | firstLetters ""}}
                                     {{ end }}
                                 </div>
@@ -94,7 +96,12 @@
 
                         <div class="forwarded body">
                             <div class="from_name">
-                                {{ .FwdFrom.FromName}} <span class="date details" title="">{{ .FwdFrom.Date | formatDate }}</span>
+                                {{ if or .__FwdFromFirstName .__FwdFromLastName }}
+                                    {{ .__FwdFromFirstName }} {{ .__FwdFromLastName }}
+                                {{ else }}
+                                    {{ .FwdFrom.FromName}}
+                                {{ end }}
+                                <span class="date details" title="">{{ .FwdFrom.Date | formatDate }}</span>
                             </div>
 
                             {{ template "messageBody" . }}
