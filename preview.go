@@ -39,9 +39,15 @@ type StoredChatInfo struct {
 }
 
 type ChatPageView struct {
-	Account  map[string]interface{}
-	Chat     StoredChatInfo
-	Messages []map[string]interface{}
+	Account    map[string]interface{}
+	Chat       StoredChatInfo
+	Messages   []map[string]interface{}
+	Prev       int
+	Next       int
+	Limit      int
+	HasPrev    bool
+	HasNext    bool
+	TotalCount int
 }
 
 type File struct {
@@ -68,6 +74,30 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Info("invalid chat ID: %v", err)
 		http.Error(w, "invalid chat ID", http.StatusBadRequest)
+		return
+	}
+
+	limitStr := r.URL.Query().Get("limit")
+	fromStr := r.URL.Query().Get("from")
+	limit := 10000
+	from := 0
+
+	if limitStr != "" {
+		limit, err = strconv.Atoi(limitStr)
+		if err != nil {
+			log.Info("invalid limit: %v", err)
+			http.Error(w, "invalid limit parameter", http.StatusBadRequest)
+			return
+		}
+	}
+
+	if fromStr != "" {
+		from, err = strconv.Atoi(fromStr)
+		if err != nil {
+			log.Info("invalid from: %v", err)
+			http.Error(w, "invalid from parameter", http.StatusBadRequest)
+			return
+		}
 	}
 
 	account, err := s.loadAccountData()
@@ -137,7 +167,36 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.renderTemplate(w, "chat.html", ChatPageView{Account: account, Chat: chatInfo, Messages: messages})
+	totalCount := len(messages)
+	hasPrev := from > 0
+	hasNext := limit > 0 && from+limit < totalCount
+	prev := from - limit
+	if prev < 0 || limit == 0 {
+		prev = 0
+	}
+	next := from + limit
+
+	if limit > 0 {
+		end := from + limit
+		if end > totalCount {
+			end = totalCount
+		}
+		messages = messages[from:end]
+	} else if from > 0 {
+		messages = messages[from:]
+	}
+
+	s.renderTemplate(w, "chat.html", ChatPageView{
+		Account:    account,
+		Chat:       chatInfo,
+		Messages:   messages,
+		Prev:       prev,
+		Next:       next,
+		Limit:      limit,
+		HasPrev:    hasPrev,
+		HasNext:    hasNext,
+		TotalCount: totalCount,
+	})
 }
 
 func (s *Server) getFirstLastNames(t map[string]interface{}, usersData map[int64]*UserData) (firstName, lastName string) {

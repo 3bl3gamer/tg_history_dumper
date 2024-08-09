@@ -232,6 +232,12 @@ a.block_link:hover {
     display: block;
 }
 
+.pagination {
+    text-align: center;
+    padding: 20px;
+    font-size: 16px;
+}
+
 .media .fill {
     background-image: url(/static/file_icon.svg)
 }

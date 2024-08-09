@@ -38,6 +38,11 @@
 {{ define "content" }}
 <div class="page_body chat_page">
     <div class="history">
+        {{ if .HasPrev }}
+            <a class="pagination block_link" href="/chats/{{ .Chat.ID }}?from={{ .Prev }}&limit={{ .Limit }}">
+                Previous messages
+            </a>
+        {{ end}}
         {{ range .Messages }}
             <div class="message {{if .__ServiceMessage}}service{{else}}default{{end}} clearfix" id="">
                 {{ if .__ServiceMessage }}
@@ -114,6 +119,12 @@
             </div>
         {{ else }}
             No messages
+        {{ end }}
+
+        {{ if .HasNext }}
+        <a class="pagination block_link" href="/chats/{{ .Chat.ID }}?from={{ .Next }}&limit={{ .Limit }}">
+            Next messages
+        </a>
         {{ end }}
 </div>
 {{ end }}
