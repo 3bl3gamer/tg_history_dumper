@@ -39,7 +39,6 @@ type StoredChatInfo struct {
 }
 
 type ChatPageView struct {
-	Account    map[string]interface{}
 	Chat       StoredChatInfo
 	Messages   []map[string]interface{}
 	Prev       int
@@ -100,12 +99,6 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	account, err := s.loadAccountData()
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	chatInfo, err := s.loadChatByID(chatID)
 	if err != nil {
 		log.Info("couldn't load chat: %v", err)
@@ -119,6 +112,14 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 		// as eventually the map element will be overwritten with the most recent update
 		usersData[user.ID] = &user
 	})
+
+	chatsData := make(map[int64]*ChatData, 1000)
+	loadRelated(s.saver.chatsFPath(), func(chat ChatData) {
+		chatsData[chat.ID] = &chat
+	})
+
+	userData := usersData[chatID]
+	chatData := chatsData[chatID]
 
 	filesByIds, err := s.loadChatFiles(chatInfo)
 
@@ -136,8 +137,7 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 		if t["_"] == "TL_messageService" {
 			action := t["Action"].(map[string]interface{})
 			// TL_messageActionChatCreate -> "ChatCreate"
-			message, _ := strings.CutPrefix(action["_"].(string), "TL_messageAction")
-			t["__ServiceMessage"] = message
+			t["__ServiceMessage"] = strings.TrimPrefix(action["_"].(string), "TL_messageAction")
 		} else {
 			if files, ok := filesByIds[id]; ok {
 				t["__Files"] = files
@@ -147,10 +147,30 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 				t["__MessageParts"] = applyEntities(t["Message"].(string), t["Entities"].([]interface{}))
 			}
 
-			t["__FromFirstName"], t["__FromLastName"] = s.getFirstLastNames(t, usersData)
+			if userData != nil {
+				// dialog (user <-> user)
+				if t["Out"].(bool) {
+					// this is ours message in a dialog, our ID will be in FromID.UserID
+					t["__FromFirstName"], t["__FromLastName"] = s.getFirstLastNames(t, usersData, chatsData)
+				} else {
+					// this is other's message in a dialog, there should be a UserData record
+					t["__FromFirstName"], t["__FromLastName"] = derefOr(userData.FirstName, ""), derefOr(userData.LastName, "")
+				}
+			} else if chatData != nil && chatData.IsChannel {
+				// channel
+				t["__FromFirstName"], t["__FromLastName"] = chatData.Title, ""
+			} else if chatData != nil && !chatData.IsChannel {
+				// group chat
+				t["__FromFirstName"], t["__FromLastName"] = s.getFirstLastNames(t, usersData, chatsData)
+			}
+
+			// something is wrong, data is inconsistent, trying to display at least something
+			if t["__FromFirstName"] == "" && t["__FromLastName"] == "" {
+				t["__FromFirstName"] = chatInfo.Name
+			}
 
 			if fwdFromID, ok := t["FwdFrom"].(map[string]interface{}); ok {
-				t["__FwdFromFirstName"], t["__FwdFromLastName"] = s.getFirstLastNames(fwdFromID, usersData)
+				t["__FwdFromFirstName"], t["__FwdFromLastName"] = s.getFirstLastNames(fwdFromID, usersData, chatsData)
 			}
 		}
 
@@ -187,7 +207,6 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.renderTemplate(w, "chat.html", ChatPageView{
-		Account:    account,
 		Chat:       chatInfo,
 		Messages:   messages,
 		Prev:       prev,
@@ -199,56 +218,31 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) getFirstLastNames(t map[string]interface{}, usersData map[int64]*UserData) (firstName, lastName string) {
+func (s *Server) getFirstLastNames(t map[string]interface{}, usersData map[int64]*UserData, chatsData map[int64]*ChatData) (firstName, lastName string) {
 	if fromID, ok := t["FromID"].(map[string]interface{}); ok {
 		if fromUserIDStr, ok := fromID["UserID"].(string); ok {
 			fromUserID, err := strconv.ParseInt(fromUserIDStr, 10, 64)
 			if err == nil {
 				if fromUser, ok := usersData[fromUserID]; ok {
-					if fromUser.FirstName != nil {
-						firstName = *fromUser.FirstName
-					}
-					if fromUser.LastName != nil {
-						lastName = *fromUser.LastName
-					}
+					firstName = derefOr(fromUser.FirstName, "")
+					lastName = derefOr(fromUser.LastName, "")
 				}
 			} else {
 				log.Info("couldn't parse FromID['UserID'] for %s : %v", fromUserIDStr, err)
 			}
+		} else if fromChannelIDStr, ok := fromID["ChannelID"].(string); ok {
+			fromChannelID, err := strconv.ParseInt(fromChannelIDStr, 10, 64)
+			if err == nil {
+				if fromChannel, ok := chatsData[fromChannelID]; ok {
+					firstName = fromChannel.Title
+					lastName = ""
+				}
+			} else {
+				log.Info("couldn't parse FromID['ChannelID'] for %s : %v", fromUserIDStr, err)
+			}
 		}
 	}
 	return
-}
-
-func (s *Server) loadAccountData() (map[string]interface{}, error) {
-	account := make(map[string]interface{})
-	n := 0
-	accountFPath := s.saver.accountFPath()
-
-	loadResult := loadRelated(accountFPath, func(t map[string]interface{}) {
-		account = t
-		n++
-	})
-
-	if loadResult != nil {
-		return nil, fmt.Errorf("couldn't load accounts file %s: %s", accountFPath, loadResult)
-	}
-
-	if n > 1 || n == 0 {
-		return nil, fmt.Errorf("expected only 1 line in %s, found: %d", accountFPath, n)
-	}
-
-	_, ok := account["ID"]
-	if !ok {
-		return nil, fmt.Errorf("malformed json: 'ID' attr is missing in %s", accountFPath)
-	}
-
-	firstName, _ := account["FirstName"].(string)
-	lastName, _ := account["LastName"].(string)
-
-	account["FirstLetters"] = extractFirstTwoLetters(firstName, lastName)
-
-	return account, nil
 }
 
 func extractFirstTwoLetters(firstName string, lastName string) string {
@@ -399,7 +393,7 @@ func addDefaultScheme(url, defaultScheme string) string {
 	return url
 }
 
-// fpathSeparatorsToURL converts separatos in *relative* filepath to "/" (URL path separators).
+// fpathSeparatorsToURL converts separators in *relative* filepath to "/" (URL path separators).
 // Usefull on Windows where filepaths use backslashes and
 // can not be used in template URLs directly ("path\to\file" will become "path%5cto%5cfile")
 func fpathSeparatorsToURL(fpath string) string {
@@ -408,6 +402,13 @@ func fpathSeparatorsToURL(fpath string) string {
 	} else {
 		return strings.ReplaceAll(fpath, string(filepath.Separator), "/")
 	}
+}
+
+func derefOr[T any](val *T, defaultVal T) T {
+	if val == nil {
+		return defaultVal
+	}
+	return *val
 }
 
 func (s *Server) loadChats() ([]StoredChatInfo, error) {
