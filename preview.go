@@ -399,6 +399,17 @@ func addDefaultScheme(url, defaultScheme string) string {
 	return url
 }
 
+// fpathSeparatorsToURL converts separatos in *relative* filepath to "/" (URL path separators).
+// Usefull on Windows where filepaths use backslashes and
+// can not be used in template URLs directly ("path\to\file" will become "path%5cto%5cfile")
+func fpathSeparatorsToURL(fpath string) string {
+	if filepath.Separator == '/' {
+		return fpath
+	} else {
+		return strings.ReplaceAll(fpath, string(filepath.Separator), "/")
+	}
+}
+
 func (s *Server) loadChats() ([]StoredChatInfo, error) {
 	chats, err := s.saver.ReadSavedChatsList()
 	if err != nil {
@@ -451,7 +462,7 @@ func (s *Server) loadChatFiles(chat StoredChatInfo) (map[int64][]File, error) {
 
 		filesById[file.MessageID] = append(filesById[file.MessageID], File{
 			Name:        file.FName,
-			FullWebPath: "/" + relPath,
+			FullWebPath: "/" + fpathSeparatorsToURL(relPath),
 			Index:       file.IndexInMessage,
 			Size:        stat.Size(),
 		})
