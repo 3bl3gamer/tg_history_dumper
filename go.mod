@@ -7,6 +7,7 @@ require (
 	github.com/ansel1/merry/v2 v2.2.1
 	github.com/fatih/color v1.17.0
 	github.com/go-test/deep v1.1.1
+	github.com/valyala/fastjson v1.6.4
 	golang.org/x/net v0.27.0
 )
 
