@@ -14,7 +14,7 @@
                 <div class="pull_left userpic_wrap">
                     <div class="userpic userpic_default" style="width: 48px; height: 48px">
                         <div class="initials" style="line-height: 48px">
-                            {{ .FirstLetters }}
+                            {{ firstLetters .Title "" }}
                         </div>
                     </div>
                 </div>
@@ -25,7 +25,7 @@
                     </div>
 
                     <div class="name bold">
-                        {{ .Name }}
+                        {{ .Title }}
                     </div>
                 </div>
             </a>

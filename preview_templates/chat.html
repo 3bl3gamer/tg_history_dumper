@@ -1,5 +1,5 @@
 {{ define "title" }}Tg History Dumper exported data{{ end }}
-{{ define "header" }}{{ .Chat.Name }}{{ end }}
+{{ define "header" }}{{ .ChatTitle }}{{ end }}
 
 {{ define "messageBody" }}
     {{ range .__Files }}
@@ -39,7 +39,7 @@
 <div class="page_body chat_page">
     <div class="history">
         {{ if .HasPrev }}
-            <a class="pagination block_link" href="/chats/{{ .Chat.ID }}?from={{ .Prev }}&limit={{ .Limit }}">
+            <a class="pagination block_link" href="/chats/{{ .ChatID }}?from={{ .Prev }}&limit={{ .Limit }}">
                 Previous messages
             </a>
         {{ end}}
@@ -110,7 +110,7 @@
         {{ end }}
 
         {{ if .HasNext }}
-        <a class="pagination block_link" href="/chats/{{ .Chat.ID }}?from={{ .Next }}&limit={{ .Limit }}">
+        <a class="pagination block_link" href="/chats/{{ .ChatID }}?from={{ .Next }}&limit={{ .Limit }}">
             Next messages
         </a>
         {{ end }}
