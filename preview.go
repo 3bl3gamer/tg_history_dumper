@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf16"
@@ -26,9 +27,11 @@ var templatesFS embed.FS
 var staticFS embed.FS
 
 type Server struct {
-	config *Config
-	saver  *JSONFilesHistorySaver
-	mux    *http.ServeMux
+	config     *Config
+	saver      *JSONFilesHistorySaver
+	userReader *ChatSyncReader[UserData]
+	chatReader *ChatSyncReader[ChatData]
+	mux        *http.ServeMux
 }
 
 type StoredChatInfo struct {
@@ -106,20 +109,28 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	usersData := make(map[int64]*UserData, 1000)
-	loadRelated(s.saver.usersFPath(), func(user UserData) {
-		// users file might contain duplicates however no extra logic is needed to handle it
-		// as eventually the map element will be overwritten with the most recent update
-		usersData[user.ID] = &user
-	})
+	if err := s.userReader.UpdateOffsets(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if err := s.chatReader.UpdateOffsets(); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-	chatsData := make(map[int64]*ChatData, 1000)
-	loadRelated(s.saver.chatsFPath(), func(chat ChatData) {
-		chatsData[chat.ID] = &chat
-	})
+	userReader := &ChatCachedReader[UserData]{reader: s.userReader}
+	chatReader := &ChatCachedReader[ChatData]{reader: s.chatReader}
 
-	userData := usersData[chatID]
-	chatData := chatsData[chatID]
+	userData, err := userReader.ReadOpt(chatID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	chatData, err := chatReader.ReadOpt(chatID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	filesByIds, err := s.loadChatFiles(chatInfo)
 
@@ -151,7 +162,7 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 				// dialog (user <-> user)
 				if t["Out"].(bool) {
 					// this is ours message in a dialog, our ID will be in FromID.UserID
-					t["__FromFirstName"], t["__FromLastName"] = s.getFirstLastNames(t, usersData, chatsData)
+					t["__FromFirstName"], t["__FromLastName"], err = s.getFirstLastNames(t, userReader, chatReader)
 				} else {
 					// this is other's message in a dialog, there should be a UserData record
 					t["__FromFirstName"], t["__FromLastName"] = derefOr(userData.FirstName, ""), derefOr(userData.LastName, "")
@@ -161,7 +172,11 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 				t["__FromFirstName"], t["__FromLastName"] = chatData.Title, ""
 			} else if chatData != nil && !chatData.IsChannel {
 				// group chat
-				t["__FromFirstName"], t["__FromLastName"] = s.getFirstLastNames(t, usersData, chatsData)
+				t["__FromFirstName"], t["__FromLastName"], err = s.getFirstLastNames(t, userReader, chatReader)
+			}
+
+			if err != nil {
+				log.Error(err, "")
 			}
 
 			// something is wrong, data is inconsistent, trying to display at least something
@@ -170,7 +185,10 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 			}
 
 			if fwdFromID, ok := t["FwdFrom"].(map[string]interface{}); ok {
-				t["__FwdFromFirstName"], t["__FwdFromLastName"] = s.getFirstLastNames(fwdFromID, usersData, chatsData)
+				t["__FwdFromFirstName"], t["__FwdFromLastName"], err = s.getFirstLastNames(fwdFromID, userReader, chatReader)
+				if err != nil {
+					log.Error(err, "")
+				}
 			}
 		}
 
@@ -218,31 +236,39 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) getFirstLastNames(t map[string]interface{}, usersData map[int64]*UserData, chatsData map[int64]*ChatData) (firstName, lastName string) {
+func (s *Server) getFirstLastNames(
+	t map[string]interface{},
+	userReader *ChatCachedReader[UserData],
+	chatReader *ChatCachedReader[ChatData],
+) (firstName, lastName string, err error) {
 	if fromID, ok := t["FromID"].(map[string]interface{}); ok {
 		if fromUserIDStr, ok := fromID["UserID"].(string); ok {
 			fromUserID, err := strconv.ParseInt(fromUserIDStr, 10, 64)
-			if err == nil {
-				if fromUser, ok := usersData[fromUserID]; ok {
-					firstName = derefOr(fromUser.FirstName, "")
-					lastName = derefOr(fromUser.LastName, "")
-				}
-			} else {
-				log.Info("couldn't parse FromID['UserID'] for %s : %v", fromUserIDStr, err)
+			if err != nil {
+				return "", "", merry.Prependf(err, "couldn't parse FromID['UserID'] for %s", fromUserIDStr)
+			}
+			fromUser, err := userReader.ReadOpt(fromUserID)
+			if err != nil {
+				return "", "", merry.Wrap(err)
+			}
+			if fromUser != nil {
+				return derefOr(fromUser.FirstName, ""), derefOr(fromUser.LastName, ""), nil
 			}
 		} else if fromChannelIDStr, ok := fromID["ChannelID"].(string); ok {
 			fromChannelID, err := strconv.ParseInt(fromChannelIDStr, 10, 64)
-			if err == nil {
-				if fromChannel, ok := chatsData[fromChannelID]; ok {
-					firstName = fromChannel.Title
-					lastName = ""
-				}
-			} else {
-				log.Info("couldn't parse FromID['ChannelID'] for %s : %v", fromUserIDStr, err)
+			if err != nil {
+				return "", "", merry.Prependf(err, "couldn't parse FromID['ChannelID'] for %s", fromUserIDStr)
+			}
+			fromChannel, err := chatReader.ReadOpt(fromChannelID)
+			if err != nil {
+				return "", "", merry.Wrap(err)
+			}
+			if fromChannel != nil {
+				return fromChannel.Title, "", nil
 			}
 		}
 	}
-	return
+	return "", "", nil
 }
 
 func extractFirstTwoLetters(firstName string, lastName string) string {
@@ -520,10 +546,70 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mux.ServeHTTP(w, r)
 }
 
+// ChatSyncReader is a thread-safe wrapper around JSONRecordsReader
+// so it can be used with (theoretically) concurrent HTTP requests.
+type ChatSyncReader[T UserData | ChatData] struct {
+	reader *JSONRecordsReader[T]
+	mutex  sync.RWMutex
+}
+
+func NewChatSyncReader[T UserData | ChatData](fpath string) *ChatSyncReader[T] {
+	return &ChatSyncReader[T]{
+		reader: NewJSONRecordsReader[T](fpath),
+	}
+}
+
+func (r *ChatSyncReader[T]) Read(id int64) (T, bool, error) {
+	r.mutex.RLock()
+	defer r.mutex.RUnlock()
+	return r.reader.Read(id)
+}
+
+func (r *ChatSyncReader[T]) UpdateOffsets() error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+	return r.reader.UpdateOffsets()
+}
+
+// ChatCachedReader is a wrapper around JSONRecordsReader with read items cache.
+//
+// It IS NOT thread-safe, though multiple chached readers may share same [ChatSyncReader].
+//
+// It is expected to be created once for each HTTP request, so multiple reads of same
+// UserID (for example) will be cached for single request. And so subsequent request
+// will run with an empty cache and may read updated user data.
+type ChatCachedReader[T UserData | ChatData] struct {
+	reader *ChatSyncReader[T]
+	cache  map[int64]T
+}
+
+func (r *ChatCachedReader[T]) ReadOpt(id int64) (*T, error) {
+	if r.cache == nil {
+		r.cache = make(map[int64]T)
+	}
+
+	item, ok := r.cache[id]
+	if ok {
+		return &item, nil
+	}
+
+	item, ok, err := r.reader.Read(id)
+	if err != nil {
+		return nil, merry.Wrap(err)
+	}
+	if ok {
+		r.cache[id] = item
+		return &item, nil
+	}
+	return nil, nil
+}
+
 func servePreviewHttp(addr string, config *Config, saver *JSONFilesHistorySaver) error {
 	server := &Server{
-		config: config,
-		saver:  saver,
+		config:     config,
+		saver:      saver,
+		userReader: NewChatSyncReader[UserData](saver.usersFPath()),
+		chatReader: NewChatSyncReader[ChatData](saver.chatsFPath()),
 	}
 
 	mux := http.NewServeMux()
