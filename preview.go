@@ -54,7 +54,7 @@ type File struct {
 	Size        int64
 }
 
-func (s *Server) chatsPageHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) chatsPageHandler(w http.ResponseWriter, r *http.Request) error {
 	type ChatWithTitle struct {
 		SavedChatEntry
 		Title string
@@ -62,18 +62,14 @@ func (s *Server) chatsPageHandler(w http.ResponseWriter, r *http.Request) {
 
 	chatEntries, err := s.saver.ReadSavedChatsList()
 	if err != nil {
-		log.Info("couldn't load chats: %v", err)
-		http.Error(w, "couldn't load chats", http.StatusInternalServerError)
-		return
+		return merry.Wrap(err)
 	}
 
 	if err := s.userReader.UpdateOffsets(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return merry.Wrap(err)
 	}
 	if err := s.chatReader.UpdateOffsets(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return merry.Wrap(err)
 	}
 
 	chats := make([]ChatWithTitle, len(chatEntries))
@@ -86,14 +82,13 @@ func (s *Server) chatsPageHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.renderTemplate(w, "chats.html", chats)
+	return nil
 }
 
-func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
+func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) error {
 	chatID, err := strconv.ParseInt(r.PathValue("chatID"), 10, 64)
 	if err != nil {
-		log.Info("invalid chat ID: %v", err)
-		http.Error(w, "invalid chat ID", http.StatusBadRequest)
-		return
+		return merry.Prepend(err, "invalid chat ID")
 	}
 
 	limitStr := r.URL.Query().Get("limit")
@@ -104,25 +99,20 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 	if limitStr != "" {
 		limit, err = strconv.Atoi(limitStr)
 		if err != nil {
-			log.Info("invalid limit: %v", err)
-			http.Error(w, "invalid limit parameter", http.StatusBadRequest)
-			return
+			return merry.Prepend(err, "invalid limit")
 		}
 	}
 
 	if fromStr != "" {
 		from, err = strconv.Atoi(fromStr)
 		if err != nil {
-			log.Info("invalid from: %v", err)
-			http.Error(w, "invalid from parameter", http.StatusBadRequest)
-			return
+			return merry.Prepend(err, "invalid from parameter")
 		}
 	}
 
 	chatEntries, err := s.saver.ReadSavedChatsList()
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return merry.Wrap(err)
 	}
 	var chatEntry SavedChatEntry
 	for _, chat := range chatEntries {
@@ -132,18 +122,14 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if chatEntry.ID == 0 {
-		log.Info("couldn't load chat: %v", err)
-		http.Error(w, "couldn't load chat", http.StatusInternalServerError)
-		return
+		return merry.Prepend(err, "couldn't load chat")
 	}
 
 	if err := s.userReader.UpdateOffsets(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return merry.Wrap(err)
 	}
 	if err := s.chatReader.UpdateOffsets(); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return merry.Wrap(err)
 	}
 
 	userReader := &ChatCachedReader[UserData]{reader: s.userReader}
@@ -151,32 +137,26 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 
 	userData, err := userReader.ReadOpt(chatID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return merry.Wrap(err)
 	}
 	chatData, err := chatReader.ReadOpt(chatID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return merry.Wrap(err)
 	}
 
 	chatTitle, err := s.readChatTitle(userReader, chatReader, chatID, chatEntry.FSTitle)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return merry.Wrap(err)
 	}
 
 	filesByIds, err := s.loadChatFiles(chatID)
-
 	if err != nil {
-		log.Info("couldn't load chat files: %v", err)
-		http.Error(w, "couldn't load chat files", http.StatusInternalServerError)
-		return
+		return merry.Wrap(err)
 	}
 
 	messages := make([]map[string]interface{}, 0, 1000)
 
-	loadResult := loadRelated(chatEntry.FPath, func(t map[string]interface{}) {
+	loadErr := loadRelated(chatEntry.FPath, func(t map[string]interface{}) {
 		id := int64(t["ID"].(float64))
 
 		if t["_"] == "TL_messageService" {
@@ -228,15 +208,8 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 
 		messages = append(messages, t)
 	})
-
-	if loadResult != nil {
-		http.Error(
-			w,
-			fmt.Sprintf("couldn't load chat file %s: %s", chatEntry.FPath, loadResult),
-			http.StatusInternalServerError,
-		)
-
-		return
+	if loadErr != nil {
+		return merry.Wrap(loadErr)
 	}
 
 	totalCount := len(messages)
@@ -269,6 +242,7 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) {
 		HasNext:    hasNext,
 		TotalCount: totalCount,
 	})
+	return nil
 }
 
 func (s *Server) getFirstLastNames(
@@ -643,6 +617,15 @@ func (r *ChatCachedReader[T]) ReadOpt(id int64) (*T, error) {
 	return &item, nil
 }
 
+func withError(handler func(http.ResponseWriter, *http.Request) error) func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err := handler(w, r); err != nil {
+			log.Error(err, "while handling %s %s", r.Method, r.URL)
+			http.Error(w, merry.Details(err), http.StatusInternalServerError)
+		}
+	}
+}
+
 func servePreviewHttp(addr string, config *Config, saver *JSONFilesHistorySaver) error {
 	server := &Server{
 		config:     config,
@@ -654,8 +637,8 @@ func servePreviewHttp(addr string, config *Config, saver *JSONFilesHistorySaver)
 	mux := http.NewServeMux()
 	server.mux = mux
 	mux.Handle("/", http.RedirectHandler("/chats/", http.StatusFound))
-	mux.HandleFunc("/chats/", server.chatsPageHandler)
-	mux.HandleFunc("/chats/{chatID}", server.chatPageHandler)
+	mux.HandleFunc("/chats/", withError(server.chatsPageHandler))
+	mux.HandleFunc("/chats/{chatID}", withError(server.chatPageHandler))
 
 	filesDir := http.Dir(config.OutDirPath + "/files")
 	mux.Handle("/files/", http.StripPrefix("/files/", http.FileServer(filesDir)))
