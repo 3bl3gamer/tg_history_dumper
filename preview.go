@@ -27,23 +27,23 @@ var templatesFS embed.FS
 var staticFS embed.FS
 
 type Server struct {
-	config     *Config
-	saver      *JSONFilesHistorySaver
-	userReader *ChatSyncReader[UserData]
-	chatReader *ChatSyncReader[ChatData]
-	mux        *http.ServeMux
+	config         *Config
+	saver          *JSONFilesHistorySaver
+	userReader     *ChatSyncReader[UserData]
+	chatReader     *ChatSyncReader[ChatData]
+	chatsMsgReader *ChatsMessageReader
+	mux            *http.ServeMux
 }
 
 type ChatPageView struct {
-	ChatID     int64
-	ChatTitle  string
-	Messages   []map[string]interface{}
-	Prev       int
-	Next       int
-	Limit      int
-	HasPrev    bool
-	HasNext    bool
-	TotalCount int
+	ChatID    int64
+	ChatTitle string
+	Messages  []map[string]interface{}
+	Prev      int
+	Next      int
+	Limit     int
+	HasPrev   bool
+	HasNext   bool
 }
 
 type File struct {
@@ -154,9 +154,12 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) error {
 		return merry.Wrap(err)
 	}
 
-	messages := make([]map[string]interface{}, 0, 1000)
+	messages, hasNext, err := s.chatsMsgReader.Read(chatEntry.FPath, from, limit)
+	if err != nil {
+		return merry.Wrap(err)
+	}
 
-	loadErr := loadRelated(chatEntry.FPath, func(t map[string]interface{}) {
+	for _, t := range messages {
 		id := int64(t["ID"].(float64))
 
 		if t["_"] == "TL_messageService" {
@@ -205,42 +208,24 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) error {
 				}
 			}
 		}
-
-		messages = append(messages, t)
-	})
-	if loadErr != nil {
-		return merry.Wrap(loadErr)
 	}
 
-	totalCount := len(messages)
 	hasPrev := from > 0
-	hasNext := limit > 0 && from+limit < totalCount
 	prev := from - limit
 	if prev < 0 || limit == 0 {
 		prev = 0
 	}
 	next := from + limit
 
-	if limit > 0 {
-		end := from + limit
-		if end > totalCount {
-			end = totalCount
-		}
-		messages = messages[from:end]
-	} else if from > 0 {
-		messages = messages[from:]
-	}
-
 	s.renderTemplate(w, "chat.html", ChatPageView{
-		ChatID:     chatID,
-		ChatTitle:  chatTitle,
-		Messages:   messages,
-		Prev:       prev,
-		Next:       next,
-		Limit:      limit,
-		HasPrev:    hasPrev,
-		HasNext:    hasNext,
-		TotalCount: totalCount,
+		ChatID:    chatID,
+		ChatTitle: chatTitle,
+		Messages:  messages,
+		Prev:      prev,
+		Next:      next,
+		Limit:     limit,
+		HasPrev:   hasPrev,
+		HasNext:   hasNext,
 	})
 	return nil
 }
@@ -428,17 +413,6 @@ func addDefaultScheme(url, defaultScheme string) string {
 	return url
 }
 
-// fpathSeparatorsToURL converts separators in *relative* filepath to "/" (URL path separators).
-// Usefull on Windows where filepaths use backslashes and
-// can not be used in template URLs directly ("path\to\file" will become "path%5cto%5cfile")
-func fpathSeparatorsToURL(fpath string) string {
-	if filepath.Separator == '/' {
-		return fpath
-	} else {
-		return strings.ReplaceAll(fpath, string(filepath.Separator), "/")
-	}
-}
-
 func derefOr[T any](val *T, defaultVal T) T {
 	if val == nil {
 		return defaultVal
@@ -446,13 +420,13 @@ func derefOr[T any](val *T, defaultVal T) T {
 	return *val
 }
 
-type ChatReadter[T any] interface {
+type ChatReader[T any] interface {
 	Read(id int64) (T, bool, error)
 }
 
 func (s *Server) readChatTitle(
-	userReader ChatReadter[UserData],
-	chatReader ChatReadter[ChatData],
+	userReader ChatReader[UserData],
+	chatReader ChatReader[ChatData],
 	chatID int64, fallback string,
 ) (string, error) {
 	userData, found, err := userReader.Read(chatID)
@@ -491,7 +465,7 @@ func (s *Server) loadChatFiles(chatID int64) (map[int64][]File, error) {
 
 		filesById[file.MessageID] = append(filesById[file.MessageID], File{
 			Name:        file.FName,
-			FullWebPath: "/" + fpathSeparatorsToURL(relPath),
+			FullWebPath: "/" + filepath.ToSlash(relPath),
 			Index:       file.IndexInMessage,
 			Size:        stat.Size(),
 		})
@@ -617,6 +591,35 @@ func (r *ChatCachedReader[T]) ReadOpt(id int64) (*T, error) {
 	return &item, nil
 }
 
+// ChatsMessageReader is a thread-safe wrapper around multiple [JSONMessageReader]s.
+// It stores a reader for each chat's history file.
+type ChatsMessageReader struct {
+	mutex       sync.Mutex
+	chatReaders map[string]*JSONMessageReader
+}
+
+// Read reads limit messages starting from offset message from history file at fpath.
+//
+// First message has offset=0.
+//
+// If limit=0, reads all messages till the end (offset still applies).
+func (r *ChatsMessageReader) Read(fpath string, offset, limit int) ([]map[string]interface{}, bool, error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	if r.chatReaders == nil {
+		r.chatReaders = make(map[string]*JSONMessageReader)
+	}
+
+	reader := r.chatReaders[fpath]
+	if reader == nil {
+		reader = NewJSONMessageReader(fpath)
+		r.chatReaders[fpath] = reader
+	}
+
+	return reader.Read(offset, limit)
+}
+
 func withError(handler func(http.ResponseWriter, *http.Request) error) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := handler(w, r); err != nil {
@@ -628,10 +631,11 @@ func withError(handler func(http.ResponseWriter, *http.Request) error) func(http
 
 func servePreviewHttp(addr string, config *Config, saver *JSONFilesHistorySaver) error {
 	server := &Server{
-		config:     config,
-		saver:      saver,
-		userReader: NewChatSyncReader[UserData](saver.usersFPath()),
-		chatReader: NewChatSyncReader[ChatData](saver.chatsFPath()),
+		config:         config,
+		saver:          saver,
+		userReader:     NewChatSyncReader[UserData](saver.usersFPath()),
+		chatReader:     NewChatSyncReader[ChatData](saver.chatsFPath()),
+		chatsMsgReader: &ChatsMessageReader{},
 	}
 
 	mux := http.NewServeMux()

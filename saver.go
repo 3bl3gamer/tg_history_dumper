@@ -381,31 +381,6 @@ func (s JSONFilesHistorySaver) GetLastStoryID(chat *Chat) (int32, error) {
 	return s.getLastLineID(chatFPath)
 }
 
-func loadRelated[T any](fpath string, f func(T)) error {
-	file, err := os.Open(fpath)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return merry.Wrap(err)
-	}
-	defer file.Close()
-
-	decoder := json.NewDecoder(file)
-	for {
-		var obj T
-		err := decoder.Decode(&obj)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return merry.Wrap(err)
-		}
-		f(obj)
-	}
-	return nil
-}
-
 func findOrReadRelated[T UserData | ChatData](itemsMap map[int64]*T, itemsReader *JSONRecordsReader[T], id int64) (*T, bool, error) {
 	item, exists := itemsMap[id]
 	if exists {
@@ -792,19 +767,7 @@ func (r *JSONRecordsReader[T]) UpdateOffsets() error {
 	// file is already in memory cahce |          20ms  |    90ms  |       500ms
 
 	scanner := bufio.NewScanner(f)
-	scanner.Split(func(data []byte, atEOF bool) (advance int, token []byte, err error) {
-		// splits lines like bufio.ScanLines but newlines are preserved
-		if atEOF && len(data) == 0 {
-			return 0, nil, nil
-		}
-		if i := bytes.IndexByte(data, '\n'); i >= 0 {
-			return i + 1, data[0 : i+1], nil
-		}
-		if atEOF {
-			return len(data), data, nil
-		}
-		return 0, nil, nil
-	})
+	scanner.Split(ScanFullLines)
 
 	var p fastjson.Parser
 	for scanner.Scan() {
@@ -824,7 +787,102 @@ func (r *JSONRecordsReader[T]) UpdateOffsets() error {
 	}
 
 	if err := scanner.Err(); err != nil {
-		merry.Wrap(err)
+		return merry.Wrap(err)
 	}
 	return nil
+}
+
+// JSONMessageReader reads range of JSONL messages.
+// It caches message file positions so repetitive reads
+// of same or previous messages will be faster.
+type JSONMessageReader struct {
+	fpath      string
+	endOffsets []int64 //message_number -> file_offset_of_data_end
+}
+
+func NewJSONMessageReader(fpath string) *JSONMessageReader {
+	return &JSONMessageReader{fpath: fpath}
+}
+
+// Read reads limit messages starting from offset message.
+//
+// First message has offset=0.
+//
+// If limit=0, reads all messages till the end (offset still applies).
+func (r *JSONMessageReader) Read(offset, limit int) ([]map[string]interface{}, bool, error) {
+	f, err := os.Open(r.fpath)
+	if err != nil {
+		return nil, false, merry.Wrap(err)
+	}
+	defer f.Close()
+
+	curLineIndex := offset
+	if curLineIndex > len(r.endOffsets) {
+		curLineIndex = len(r.endOffsets)
+	}
+	curLineEndOffset := int64(0)
+	if curLineIndex > 0 {
+		curLineEndOffset = r.endOffsets[curLineIndex-1]
+		if _, err := f.Seek(curLineEndOffset, io.SeekStart); err != nil {
+			return nil, false, merry.Wrap(err)
+		}
+	}
+
+	scanner := bufio.NewScanner(f)
+	scanner.Split(ScanFullLines)
+	// Usually message lines are less than 1KB in size, but some messages (especially with Instan View pages)
+	// can be very large:
+	// one message with a link to https://ru.wikipedia.org/wiki/Кириллица_в_Юникоде took 508KB in JSON
+	// and other msg with a link to https://en.m.wikipedia.org/wiki/X11_color_names took 576KB
+	scanner.Buffer(make([]byte, 1024), 4*1024*1024)
+
+	hasMore := false
+	var messages []map[string]interface{}
+	for scanner.Scan() {
+		buf := scanner.Bytes()
+		if len(buf) > 0 && buf[len(buf)-1] != '\n' {
+			break //Last line does not end with newline. File is either being written or is malformed. Stopping scan.
+		}
+
+		shouldAppend := curLineIndex >= offset
+
+		curLineIndex += 1
+		curLineEndOffset += int64(len(buf))
+		if curLineIndex == len(r.endOffsets) {
+			r.endOffsets = append(r.endOffsets, curLineEndOffset)
+		}
+
+		// reading limit+1 lines, this last line won't be added to messages, but will set hasMore flag
+		if limit > 0 && len(messages) == limit {
+			hasMore = true
+			break
+		}
+
+		if shouldAppend {
+			var msg map[string]interface{}
+			if err := json.Unmarshal(buf, &msg); err != nil {
+				return nil, false, merry.Wrap(err)
+			}
+			messages = append(messages, msg)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return nil, false, merry.Wrap(err)
+	}
+	return messages, hasMore, nil
+}
+
+// ScanFullLines is a line split function like bufio.ScanLines but preserves newlines.
+func ScanFullLines(data []byte, atEOF bool) (advance int, token []byte, err error) {
+	if atEOF && len(data) == 0 {
+		return 0, nil, nil
+	}
+	if i := bytes.IndexByte(data, '\n'); i >= 0 {
+		return i + 1, data[0 : i+1], nil
+	}
+	if atEOF {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
 }
