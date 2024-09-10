@@ -36,14 +36,16 @@ type Server struct {
 }
 
 type ChatPageView struct {
-	ChatID    int64
-	ChatTitle string
-	Messages  []map[string]interface{}
-	Prev      int
-	Next      int
-	Limit     int
-	HasPrev   bool
-	HasNext   bool
+	ChatID              int64
+	ChatTitle           string
+	Messages            []map[string]interface{}
+	MessagesCountApprox int
+	From                int
+	Prev                int
+	Next                int
+	Limit               int
+	HasPrev             bool
+	HasNext             bool
 }
 
 type File struct {
@@ -221,15 +223,22 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) error {
 	}
 	next := from + limit
 
+	msgsTotalApprox, err := s.chatsMsgReader.EstimateMessagesCount(chatEntry.FPath)
+	if err != nil {
+		return merry.Wrap(err)
+	}
+
 	s.renderTemplate(w, "chat.html", ChatPageView{
-		ChatID:    chatID,
-		ChatTitle: chatTitle,
-		Messages:  messages,
-		Prev:      prev,
-		Next:      next,
-		Limit:     limit,
-		HasPrev:   hasPrev,
-		HasNext:   hasNext,
+		ChatID:              chatID,
+		ChatTitle:           chatTitle,
+		Messages:            messages,
+		MessagesCountApprox: int(msgsTotalApprox),
+		From:                from,
+		Prev:                prev,
+		Next:                next,
+		Limit:               limit,
+		HasPrev:             hasPrev,
+		HasNext:             hasNext,
 	})
 	return nil
 }
@@ -490,9 +499,6 @@ func (s *Server) renderTemplate(w http.ResponseWriter, tmpl string, data interfa
 		"formatDate": func(date interface{}) string {
 			return time.Unix(int64(date.(float64)), 0).Format("02.01.2006 15:04:05")
 		},
-		"safe_url": func(s string) template.URL {
-			return template.URL(s)
-		},
 		"firstLetters": extractFirstTwoLetters,
 		"humanizeSize": func(b int64) string {
 			const unit = 1000
@@ -507,6 +513,15 @@ func (s *Server) renderTemplate(w http.ResponseWriter, tmpl string, data interfa
 				exp++
 			}
 			return fmt.Sprintf("%.1f %cB", float64(b)/float64(div), prefixes[exp])
+		},
+		"pluralize": func(num int, single, plural string) string {
+			if num == 1 {
+				return single
+			}
+			return plural
+		},
+		"add": func(a, b int) int {
+			return a + b
 		},
 	})
 
@@ -625,6 +640,20 @@ func (r *ChatsMessageReader) Read(fpath string, offset, limit int) ([]map[string
 	}
 
 	return reader.Read(offset, limit)
+}
+
+func (r *ChatsMessageReader) EstimateMessagesCount(fpath string) (int64, error) {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	if r.chatReaders == nil {
+		return -1, nil
+	}
+	reader := r.chatReaders[fpath]
+	if reader == nil {
+		return -1, nil
+	}
+	return reader.EstimateMessagesCount()
 }
 
 func withError(handler func(http.ResponseWriter, *http.Request) error) func(http.ResponseWriter, *http.Request) {

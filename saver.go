@@ -704,7 +704,8 @@ type JSONRecordPos struct {
 //
 // Assumes each item's data is encoded as single JSON line with '\n' in the end (even after the last line).
 //
-// Assumes file can be only appended. It is not detected automatically
+// Assumes file can be only appended. It is not detected automatically but UpdateOffsets()
+// will continue reading from previous position (i.e. it will not re-read while file).
 type JSONRecordsReader[T any] struct {
 	fpath      string
 	readOffset int64
@@ -795,6 +796,10 @@ func (r *JSONRecordsReader[T]) UpdateOffsets() error {
 // JSONMessageReader reads range of JSONL messages.
 // It caches message file positions so repetitive reads
 // of same or previous messages will be faster.
+//
+// Assumes each messages's data is encoded as single JSON line with '\n' in the end (even after the last line).
+//
+// Assumes file can be only appended.
 type JSONMessageReader struct {
 	fpath      string
 	endOffsets []int64 //message_number -> file_offset_of_data_end
@@ -848,7 +853,7 @@ func (r *JSONMessageReader) Read(offset, limit int) ([]map[string]interface{}, b
 
 		curLineIndex += 1
 		curLineEndOffset += int64(len(buf))
-		if curLineIndex == len(r.endOffsets) {
+		if curLineIndex-1 == len(r.endOffsets) {
 			r.endOffsets = append(r.endOffsets, curLineEndOffset)
 		}
 
@@ -871,6 +876,22 @@ func (r *JSONMessageReader) Read(offset, limit int) ([]map[string]interface{}, b
 		return nil, false, merry.Wrap(err)
 	}
 	return messages, hasMore, nil
+}
+
+func (r *JSONMessageReader) EstimateMessagesCount() (int64, error) {
+	if len(r.endOffsets) == 0 {
+		return -1, nil
+	}
+
+	stat, err := os.Stat(r.fpath)
+	if err != nil {
+		return -1, merry.Wrap(err)
+	}
+
+	readCount := int64(len(r.endOffsets))
+	lastReadOffset := r.endOffsets[len(r.endOffsets)-1]
+
+	return readCount + (stat.Size()-lastReadOffset)*readCount/lastReadOffset, nil
 }
 
 // ScanFullLines is a line split function like bufio.ScanLines but preserves newlines.

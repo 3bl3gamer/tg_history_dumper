@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"testing"
 )
@@ -187,17 +188,27 @@ func TestJSONMessageReader(t *testing.T) {
 		}
 	}
 
+	offsets := func(t *testing.T, reader *JSONMessageReader, expected string) {
+		t.Helper()
+		cur := fmt.Sprint(reader.endOffsets)
+		if cur != expected {
+			t.Errorf(`expected "%s", received "%s"`, expected, cur)
+		}
+	}
+
 	t.Run("empty file", func(t *testing.T) {
 		fpath := fillFile(t, "", "")
 		reader := NewJSONMessageReader(fpath)
 		readTexts(t, reader, 0, 0, "end")
 		readTexts(t, reader, 100, 100, "end")
+		offsets(t, reader, "[]")
 	})
 
 	t.Run("file with some data", func(t *testing.T) {
 		fpath := fillFile(t, "", `{"Text":"#0"}`+"\n"+`{"Text":"#1"}`+"\n"+`{"Text":"#2"}`+"\n")
 		reader := NewJSONMessageReader(fpath)
 		readTexts(t, reader, 0, 0, "#0 #1 #2 end")
+		offsets(t, reader, "[14 28 42]")
 		readTexts(t, reader, 0, 9, "#0 #1 #2 end")
 		readTexts(t, reader, 0, 3, "#0 #1 #2 end")
 		readTexts(t, reader, 0, 2, "#0 #1 ...")
@@ -206,6 +217,17 @@ func TestJSONMessageReader(t *testing.T) {
 		readTexts(t, reader, 1, 0, "#1 #2 end")
 		readTexts(t, reader, 2, 0, "#2 end")
 		readTexts(t, reader, 3, 0, "end")
+	})
+
+	t.Run("sequential read", func(t *testing.T) {
+		fpath := fillFile(t, "", `{"Text":"#0"}`+"\n"+`{"Text":"#1"}`+"\n"+`{"Text":"#2"}`+"\n")
+		reader := NewJSONMessageReader(fpath)
+		readTexts(t, reader, 0, 1, "#0 ...")
+		offsets(t, reader, "[14 28]")
+		readTexts(t, reader, 1, 1, "#1 ...")
+		offsets(t, reader, "[14 28 42]")
+		readTexts(t, reader, 0, 9, "#0 #1 #2 end")
+		offsets(t, reader, "[14 28 42]")
 	})
 
 	t.Run("last line without newline", func(t *testing.T) {
@@ -239,5 +261,24 @@ func TestJSONMessageReader(t *testing.T) {
 			readTexts(t, reader, 0, 0, "#0 #1 end")
 			readTexts(t, reader, 0, 1, "#0 ...")
 		})
+	})
+
+	t.Run("EstimateMessagesCount", func(t *testing.T) {
+		fpath := fillFile(t, "", `{"Text":"#0"}`+"\n"+`{"Text":"#1"}`+"\n"+`{"Text":"#2"}`+"\n")
+		reader := NewJSONMessageReader(fpath)
+
+		estimate := func(expected int64) {
+			res, err := reader.EstimateMessagesCount()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res != expected {
+				t.Errorf(`expected %d, received %d`, expected, res)
+			}
+		}
+
+		estimate(-1)
+		readTexts(t, reader, 0, 1, "#0 ...")
+		estimate(3)
 	})
 }

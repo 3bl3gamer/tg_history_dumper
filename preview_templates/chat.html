@@ -38,11 +38,19 @@
 {{ define "content" }}
 <div class="page_body chat_page">
     <div class="history">
+        <div class="pagination-range">
+            {{ if and (not .HasPrev) (not .HasNext) }}
+                Displaying all {{ len .Messages }} {{ pluralize (len .Messages) "message" "messages" }}.
+            {{ else }}
+                Displaying messages {{ add .From 1 }}–{{ add .From (len .Messages) }} of ~{{ .MessagesCountApprox }} total.
+            {{ end }}
+        </div>
+
         {{ if .HasPrev }}
             <a class="pagination block_link" href="/chats/{{ .ChatID }}?from={{ .Prev }}&limit={{ .Limit }}">
                 Previous messages
             </a>
-        {{ end}}
+        {{ end }}
         {{ range .Messages }}
             <div class="message {{if .__ServiceMessage}}service{{else}}default{{end}} clearfix" id="">
                 {{ if .__ServiceMessage }}
