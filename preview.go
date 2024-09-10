@@ -182,7 +182,11 @@ func (s *Server) chatPageHandler(w http.ResponseWriter, r *http.Request) error {
 					t["__FromFirstName"], t["__FromLastName"], err = s.getFirstLastNames(t, userReader, chatReader)
 				} else {
 					// this is other's message in a dialog, there should be a UserData record
-					t["__FromFirstName"], t["__FromLastName"] = derefOr(userData.FirstName, ""), derefOr(userData.LastName, "")
+					if userData.IsDeleted {
+						t["__FromFirstName"], t["__FromLastName"] = "Deleted Account", ""
+					} else {
+						t["__FromFirstName"], t["__FromLastName"] = derefOr(userData.FirstName, ""), derefOr(userData.LastName, "")
+					}
 				}
 			} else if chatData != nil && chatData.IsChannel {
 				// channel
@@ -434,6 +438,9 @@ func (s *Server) readChatTitle(
 		return fallback, merry.Wrap(err)
 	}
 	if found {
+		if userData.IsDeleted {
+			return "Deleted Account", nil
+		}
 		return strings.TrimSpace(derefOr(userData.FirstName, "") + " " + derefOr(userData.LastName, "")), nil
 	}
 
