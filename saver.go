@@ -751,6 +751,9 @@ func (r *JSONRecordsReader[T]) Read(id int64) (T, bool, error) {
 
 func (r *JSONRecordsReader[T]) UpdateOffsets() error {
 	f, err := os.Open(r.fpath)
+	if os.IsNotExist(err) {
+		return nil
+	}
 	if err != nil {
 		return merry.Wrap(err)
 	}
