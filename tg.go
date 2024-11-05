@@ -668,6 +668,13 @@ func tgFindMediaFileInfos(mediaTL mtproto.TL, indexInMsg int64, ctxObjName strin
 				break
 			}
 		}
+		// There may be also a media.AltDocuments array which are used for video quality selection.
+		// It *seems* that media.Document is an original and `media.AltDocuments` are re-encoded versions with lower size.
+		// AltDocuments are also have very similar exif data and media.Document is a bit different from that.
+		// Although *sometimes* there is an entry in AltDocuments which is *bigger* than the media.Document.
+		// (for example, here t.me/android_ru/1630915 Document.Size=637176 and AltDocuments[2].Size=744419)
+		// Why? ¯\_(ツ)_/¯
+		// Saving only the original.
 		return []TGFileInfo{{
 			InputLocation: mtproto.TL_inputDocumentFileLocation{
 				ID:            doc.ID,
