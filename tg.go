@@ -117,6 +117,12 @@ func tgGetMessageID(messageTL mtproto.TL) (int32, error) {
 		return message.ID, nil
 	case mtproto.TL_messageService:
 		return message.ID, nil
+	case mtproto.TL_messageEmpty:
+		// Sometimes the first message (#1) in channel is TL_messageEmpty
+		// (instead of service message with action:TL_messageActionChannelCreate).
+		// Maybe it was somehow deleted? For example, in @rutheniumos
+		// the first visible mesage is https://t.me/rutheniumos/7 and #1 is "empty".
+		return message.ID, nil
 	default:
 		return 0, merry.Wrap(mtproto.WrongRespError(messageTL))
 	}
