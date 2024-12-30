@@ -367,6 +367,13 @@ func applyEntities(strText string, entities []interface{}) []interface{} {
 				entOffset := int64(ent["Offset"].(float64))
 				entLength := int64(ent["Length"].(float64))
 
+				// Have found some messages with a code entity with offset+length = len(text_in_utf16)+1.
+				// Android and iOS clients applied code styling on these messages
+				// but tdesktop showed just plain text. So this looks like a Telegram bug.
+				if entOffset+entLength >= int64(len(htmlInserts)) {
+					entLength = int64(len(htmlInserts)) - entOffset - 1
+				}
+
 				htmlInserts[entOffset].html += entOpen
 				htmlInserts[entOffset+entLength].html = entClose + htmlInserts[entOffset+entLength].html
 				if isBlock {
