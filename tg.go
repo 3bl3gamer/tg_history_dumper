@@ -134,6 +134,8 @@ func tgGetMessageIDStampPeer(msgTL mtproto.TL) (int32, int32, mtproto.TL, error)
 		return msg.ID, msg.Date, msg.PeerID, nil
 	case mtproto.TL_messageService:
 		return msg.ID, msg.Date, msg.PeerID, nil
+	case mtproto.TL_messageEmpty:
+		return 0, 0, nil, nil
 	default:
 		return 0, 0, nil, merry.Wrap(mtproto.WrongRespError(msg))
 	}
