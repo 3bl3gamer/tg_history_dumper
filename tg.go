@@ -15,6 +15,8 @@ import (
 	"golang.org/x/net/proxy"
 )
 
+type FileInfosExtractorFunc = func(item mtproto.TL) ([]TGFileInfo, error)
+
 type ChatType int8
 
 const (
@@ -641,30 +643,43 @@ func getBestPhotoSize(photo mtproto.TL_photo) (sizeType string, sizeBytes int32,
 	return
 }
 
+func tgFindPhotoFileInfo(photoTL mtproto.TL, fname string, indexInMsg int64, ctxLocationInObj, ctxObjName string, ctxObjID int32) (TGFileInfo, bool, error) {
+	if _, ok := photoTL.(mtproto.TL_photoEmpty); ok {
+		log.Error(nil, "got 'photoEmpty' in %s of %s #%d item #%d", ctxLocationInObj, ctxObjName, ctxObjID, indexInMsg)
+		return TGFileInfo{}, false, nil
+	}
+
+	photo := photoTL.(mtproto.TL_photo)
+	sizeType, sizeBytes, err := getBestPhotoSize(photo)
+	if err != nil {
+		return TGFileInfo{}, false, merry.Prependf(err, "image size of %s #%d item #%d", ctxObjName, ctxObjID, indexInMsg)
+	}
+
+	return TGFileInfo{
+		InputLocation: mtproto.TL_inputPhotoFileLocation{
+			ID:            photo.ID,
+			AccessHash:    photo.AccessHash,
+			FileReference: photo.FileReference,
+			ThumbSize:     sizeType,
+		},
+		Size:       int64(sizeBytes),
+		DCID:       photo.DCID,
+		FName:      fname,
+		IndexInMsg: indexInMsg,
+	}, true, nil
+}
+
 func tgFindMediaFileInfos(mediaTL mtproto.TL, indexInMsg int64, ctxObjName string, ctxObjID int32) ([]TGFileInfo, error) {
 	switch media := mediaTL.(type) {
 	case mtproto.TL_messageMediaPhoto:
-		if _, ok := media.Photo.(mtproto.TL_photoEmpty); ok {
-			log.Error(nil, "got 'photoEmpty' in media of %s #%d item #%d", ctxObjName, ctxObjID, indexInMsg)
-			return nil, nil
-		}
-		photo := media.Photo.(mtproto.TL_photo)
-		sizeType, sizeBytes, err := getBestPhotoSize(photo)
+		fileInfo, found, err := tgFindPhotoFileInfo(media.Photo, "photo.jpg", indexInMsg, "media", ctxObjName, ctxObjID)
 		if err != nil {
-			return nil, merry.Prependf(err, "image size of %s #%d item #%d", ctxObjName, ctxObjID, indexInMsg)
+			return nil, merry.Wrap(err)
 		}
-		return []TGFileInfo{{
-			InputLocation: mtproto.TL_inputPhotoFileLocation{
-				ID:            photo.ID,
-				AccessHash:    photo.AccessHash,
-				FileReference: photo.FileReference,
-				ThumbSize:     sizeType,
-			},
-			Size:       int64(sizeBytes),
-			DCID:       photo.DCID,
-			FName:      "photo.jpg",
-			IndexInMsg: indexInMsg,
-		}}, nil
+		if found {
+			return []TGFileInfo{fileInfo}, nil
+		}
+		return nil, nil
 	case mtproto.TL_messageMediaDocument:
 		doc := media.Document.(mtproto.TL_document) //has received TL_documentEmpty here once, after restart is has become TL_document
 		fname := ""
@@ -672,6 +687,15 @@ func tgFindMediaFileInfos(mediaTL mtproto.TL, indexInMsg int64, ctxObjName strin
 			if nameAttr, ok := attrTL.(mtproto.TL_documentAttributeFilename); ok {
 				fname = nameAttr.FileName
 				break
+			}
+		}
+		if media.VideoCover != nil {
+			fileInfo, found, err := tgFindPhotoFileInfo(media.VideoCover, "video_cover.jpg", indexInMsg, "document.VideoCover", ctxObjName, ctxObjID)
+			if err != nil {
+				return nil, merry.Wrap(err)
+			}
+			if found {
+				return []TGFileInfo{fileInfo}, nil
 			}
 		}
 		// There may be also a media.AltDocuments array which are used for video quality selection.
@@ -724,9 +748,32 @@ func tgFindMediaFileInfos(mediaTL mtproto.TL, indexInMsg int64, ctxObjName strin
 	case mtproto.TL_messageMediaUnsupported:
 		log.Error(nil, "media of %s #%d item #%d is insupported, skipping", ctxObjName, ctxObjID, indexInMsg)
 		return nil, nil
+	case mtproto.TL_messageMediaWebPage:
+		switch webPage := media.Webpage.(type) {
+		case mtproto.TL_webPageEmpty:
+			return nil, nil //no URL preview
+		case mtproto.TL_webPagePending:
+			// TODO: re-fetch the message somehow
+			log.Error(nil, "webpage photo in %s #%d is pending, skipped", ctxObjName, ctxObjID)
+			return nil, nil
+		case mtproto.TL_webPage:
+			if webPage.Photo != nil {
+				fileInfo, found, err := tgFindPhotoFileInfo(webPage.Photo, "webpage_photo.jpg", indexInMsg, "media.webPage", ctxObjName, ctxObjID)
+				if err != nil {
+					return nil, merry.Wrap(err)
+				}
+				if found {
+					return []TGFileInfo{fileInfo}, nil
+				}
+			}
+			return nil, nil
+		default:
+			log.Error(nil, "unexpected webpage %#T in media of %s #%d, skipping",
+				media.Webpage, ctxObjName, ctxObjID)
+			return nil, nil
+		}
 	case mtproto.TL_messageMediaGeo,
 		mtproto.TL_messageMediaContact,
-		mtproto.TL_messageMediaWebPage,
 		mtproto.TL_messageMediaVenue,
 		mtproto.TL_messageMediaGame,
 		mtproto.TL_messageMediaInvoice,

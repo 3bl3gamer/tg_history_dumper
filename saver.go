@@ -557,7 +557,7 @@ func (s JSONFilesHistorySaver) SaveAccount(me mtproto.TL_user) error {
 
 func (s JSONFilesHistorySaver) appendRecordsWithRelatedMedia(
 	fpath string, messages []mtproto.TL,
-	chat *Chat, mediaSource MediaFileSource, fileInfosFunc func(item mtproto.TL) ([]TGFileInfo, error),
+	chat *Chat, mediaSource MediaFileSource, fileInfosFunc FileInfosExtractorFunc,
 ) error {
 	file, err := s.openForAppend(fpath)
 	if err != nil {
