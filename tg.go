@@ -803,6 +803,8 @@ func tgFindMediaFileInfos(mediaTL mtproto.TL, indexInMsg int64, ctxObjName strin
 		mtproto.TL_messageMediaDice,
 		mtproto.TL_messageMediaGiveaway,
 		mtproto.TL_messageMediaGiveawayResults,
+		mtproto.TL_messageMediaVideoStream,
+		mtproto.TL_messageMediaToDo,
 		nil:
 		// nothing to save here
 		return nil, nil
