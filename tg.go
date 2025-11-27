@@ -17,6 +17,17 @@ import (
 
 type FileInfosExtractorFunc = func(item mtproto.TL) ([]TGFileInfo, error)
 
+var skipPendingWebpagePhotos bool = false
+
+const skipPendingWebpagePhotosHelp = "Sometimes there are preview images for links in chats.\n" +
+	"Sometimes (rarely) these previews have status 'pending'.\n" +
+	"This status means that preview will be ready soon.\n" +
+	"But the dumper can not (yet) re-fetch same messages again.\n" +
+	"So, as a temporary workaround, the dumper will abort with error\n" +
+	"and expect you or outer script to restart with a short delay.\n" +
+	"But, if you prefer to skip some link previews (instead of aborting with error),\n" +
+	"add -skip-pending-webpage-photos flag."
+
 type ChatType int8
 
 const (
@@ -754,8 +765,18 @@ func tgFindMediaFileInfos(mediaTL mtproto.TL, indexInMsg int64, ctxObjName strin
 			return nil, nil //no URL preview
 		case mtproto.TL_webPagePending:
 			// TODO: re-fetch the message somehow
-			log.Error(nil, "webpage photo in %s #%d is pending, skipped", ctxObjName, ctxObjID)
-			return nil, nil
+			if skipPendingWebpagePhotos {
+				log.Warn("webpage preview image in %s #%d is pending, skipping", ctxObjName, ctxObjID)
+				return nil, nil
+			} else {
+				return nil, merry.Wrap(
+					fmt.Errorf(
+						"tl;dr: webPage preview image in %s #%d is pending, run with -skip-pending-webpage-photos to skip such images."+
+							"\n\nMore details:\n%s",
+						ctxObjName, ctxObjID, skipPendingWebpagePhotosHelp),
+					merry.NoCaptureStack(),
+				)
+			}
 		case mtproto.TL_webPage:
 			if webPage.Photo != nil {
 				fileInfo, found, err := tgFindPhotoFileInfo(webPage.Photo, "webpage_photo.jpg", indexInMsg, "media.webPage", ctxObjName, ctxObjID)

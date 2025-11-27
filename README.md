@@ -266,6 +266,15 @@ Usage of tg_history_dumper:
         HTTP service address to browse through the dump
   -session string
         session file path, overrides config.session_file_path
+  -skip-pending-webpage-photos
+        Sometimes there are preview images for links in chats.
+        Sometimes (rarely) these previews have status 'pending'.
+        This status means that preview will be ready soon.
+        But the dumper can not (yet) re-fetch same messages again.
+        So, as a temporary workaround, the dumper will abort with error
+        and expect you or outer script to restart with a short delay.
+        But, if you prefer to skip some link previews (instead of aborting with error),
+        add -skip-pending-webpage-photos flag.
   -skip-stories
         do not dump sotries, overrides config.stories
   -socks5 string

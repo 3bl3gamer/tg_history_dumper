@@ -352,6 +352,7 @@ func dump() error {
 	doContactsDump := flag.String("dump-contacts", "", "enable contacts dump, use 'write' to enable dump, overriders config.dump_contacts")
 	doSessionsDump := flag.String("dump-sessions", "", "enable active sessions dump, use 'write' to enable dump, overriders config.dump_sessions")
 	httpAddr := flag.String("preview-http", "", "HTTP service address to browse through the dump")
+	flag.BoolVar(&skipPendingWebpagePhotos, "skip-pending-webpage-photos", false, skipPendingWebpagePhotosHelp)
 	flag.Parse()
 
 	// logging
