@@ -28,6 +28,8 @@ const skipPendingWebpagePhotosHelp = "Sometimes there are preview images for lin
 	"But, if you prefer to skip some link previews (instead of aborting with error),\n" +
 	"add -skip-pending-webpage-photos flag."
 
+const videoCoverFileSuffix = "video_cover.jpg"
+
 type ChatType int8
 
 const (
@@ -700,13 +702,14 @@ func tgFindMediaFileInfos(mediaTL mtproto.TL, indexInMsg int64, ctxObjName strin
 				break
 			}
 		}
+		var fileInfos []TGFileInfo
 		if media.VideoCover != nil {
-			fileInfo, found, err := tgFindPhotoFileInfo(media.VideoCover, "video_cover.jpg", indexInMsg, "document.VideoCover", ctxObjName, ctxObjID)
+			fileInfo, found, err := tgFindPhotoFileInfo(media.VideoCover, videoCoverFileSuffix, indexInMsg, "document.VideoCover", ctxObjName, ctxObjID)
 			if err != nil {
 				return nil, merry.Wrap(err)
 			}
 			if found {
-				return []TGFileInfo{fileInfo}, nil
+				fileInfos = append(fileInfos, fileInfo)
 			}
 		}
 		// There may be also a media.AltDocuments array which are used for video quality selection.
@@ -716,7 +719,7 @@ func tgFindMediaFileInfos(mediaTL mtproto.TL, indexInMsg int64, ctxObjName strin
 		// (for example, here t.me/android_ru/1630915 Document.Size=637176 and AltDocuments[2].Size=744419)
 		// Why? ¯\_(ツ)_/¯
 		// Saving only the original.
-		return []TGFileInfo{{
+		fileInfos = append(fileInfos, TGFileInfo{
 			InputLocation: mtproto.TL_inputDocumentFileLocation{
 				ID:            doc.ID,
 				AccessHash:    doc.AccessHash,
@@ -726,7 +729,8 @@ func tgFindMediaFileInfos(mediaTL mtproto.TL, indexInMsg int64, ctxObjName strin
 			DCID:       doc.DCID,
 			FName:      fname,
 			IndexInMsg: indexInMsg,
-		}}, nil
+		})
+		return fileInfos, nil
 	case mtproto.TL_messageMediaStory:
 		if media.Story == nil {
 			return nil, nil

@@ -440,6 +440,38 @@ func derefOr[T any](val *T, defaultVal T) T {
 	return *val
 }
 
+func isSet(obj map[string]interface{}, path ...string) bool {
+	if len(path) == 0 {
+		return obj != nil
+	}
+
+	current := obj
+	for i := 0; i < len(path)-1; i++ {
+		val, exists := current[path[i]]
+		if !exists {
+			return false
+		}
+		nextMap, ok := val.(map[string]interface{})
+		if !ok {
+			return false
+		}
+		current = nextMap
+	}
+	finalVal, exists := current[path[len(path)-1]]
+	if !exists {
+		return false
+	}
+
+	if finalVal == nil {
+		return false
+	}
+	if boolVal, ok := finalVal.(bool); ok && !boolVal {
+		return false
+	}
+
+	return true
+}
+
 type ChatReader[T any] interface {
 	Read(id int64) (T, bool, error)
 }
@@ -494,8 +526,21 @@ func (s *Server) loadChatFiles(chatID int64) (map[int64][]File, error) {
 		})
 	}
 
+	fileNameIndex := func(f File) int {
+		// video cover images go first
+		if strings.HasSuffix(f.Name, videoCoverFileSuffix) {
+			return 0
+		}
+		return 1
+	}
 	for _, files := range filesById {
-		sort.Slice(files, func(i, j int) bool { return files[i].Index < files[j].Index })
+		sort.Slice(files, func(i, j int) bool {
+			f0, f1 := files[i], files[j]
+			if f0.Index != f1.Index {
+				return f0.Index < f1.Index
+			}
+			return fileNameIndex(f0) < fileNameIndex(f1)
+		})
 	}
 
 	return filesById, nil
@@ -529,6 +574,13 @@ func (s *Server) renderTemplate(w http.ResponseWriter, tmpl string, data interfa
 		},
 		"add": func(a, b int) int {
 			return a + b
+		},
+		"canDisplayAsImg": func(msg map[string]interface{}, file File) bool {
+			// or $.Media.Photo $.Media.ExtendedMedia $.Media.Webpage.Photo $.Media.VideoCover
+			return isSet(msg, "Media", "Photo") ||
+				isSet(msg, "Media", "ExtendedMedia") ||
+				isSet(msg, "Media", "Webpage", "Photo") ||
+				(isSet(msg, "Media", "VideoCover") && strings.HasSuffix(file.Name, videoCoverFileSuffix))
 		},
 	})
 

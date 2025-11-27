@@ -4,7 +4,7 @@
 {{ define "messageBody" }}
     {{ range .__Files }}
         <div class="media_wrap clearfix">
-            {{ if or $.Media.Photo $.Media.ExtendedMedia }}
+            {{ if canDisplayAsImg $ . }}
                 <a class="photo_wrap clearfix pull_left" href="{{.FullWebPath}}">
                     <img class="photo" src="{{.FullWebPath}}" style="max-width: 260px; max-height: 260px;">
                 </a>
@@ -35,6 +35,10 @@
     {{ end }}
 {{ end }}
 
+{{ define "messageID" }}
+<div class="msg-id">#{{ .ID }}</div>
+{{ end }}
+
 {{ define "content" }}
 <div class="page_body chat_page">
     <div class="history">
@@ -52,11 +56,11 @@
             </a>
         {{ end }}
         {{ range .Messages }}
-            <div class="message {{if .__ServiceMessage}}service{{else}}default{{end}} clearfix" id="">
+            <div class="message {{if .__ServiceMessage}}service{{else}}default{{end}} clearfix">
                 {{ if .__ServiceMessage }}
                 <div class="body">
-                    <div class="pull_right date details" title="">
-                        {{ .Date | formatDate }}
+                    <div class="pull_right date details">
+                        {{ template "messageID" . }}{{ .Date | formatDate }}
                     </div>
 
                     <div class="text">
@@ -73,8 +77,8 @@
                 </div>
 
                 <div class="body">
-                    <div class="pull_right date details" title="">
-                        {{ .Date | formatDate }}
+                    <div class="pull_right date details">
+                        {{ template "messageID" . }}{{ .Date | formatDate }}
                     </div>
 
                     <div class="from_name">
@@ -102,7 +106,7 @@
                                 {{ else }}
                                     {{ .FwdFrom.FromName}}
                                 {{ end }}
-                                <span class="date details" title="">{{ .FwdFrom.Date | formatDate }}</span>
+                                <span class="date details">{{ .FwdFrom.Date | formatDate }}</span>
                             </div>
 
                             {{ template "messageBody" . }}
