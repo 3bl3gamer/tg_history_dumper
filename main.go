@@ -18,8 +18,8 @@ import (
 type LogHandler struct {
 	mtproto.ColorLogHandler
 	ConsoleMaxLevel mtproto.LogLevel
-	ErrorFileLoger  *stdlog.Logger
-	DebugFileLoger  *stdlog.Logger
+	ErrorFileLogger *stdlog.Logger
+	DebugFileLogger *stdlog.Logger
 	ConsoleLogger   *stdlog.Logger
 }
 
@@ -30,9 +30,9 @@ func (h LogHandler) Log(level mtproto.LogLevel, err error, msg string, args ...i
 		h.ConsoleLogger.Print(h.AddLevelColor(level, text))
 	}
 	if level <= mtproto.ERROR {
-		h.ErrorFileLoger.Print(text)
+		h.ErrorFileLogger.Print(text)
 	}
-	h.DebugFileLoger.Print(text)
+	h.DebugFileLogger.Print(text)
 }
 
 func (h LogHandler) Message(isIncoming bool, msg mtproto.TL, id int64) {
@@ -51,7 +51,7 @@ func NewFileProgressLogger() *FileProgressLogger {
 func (l *FileProgressLogger) OnProgress(fileLocation mtproto.TL, offset, size int64) {
 	prog := offset * 100 / size
 	if prog == 100 && l.prevProgress == 0 {
-		return //got file in one step, no need to log it
+		return // got file in one step, no need to log it
 	}
 	if prog == 100 || time.Since(l.prevTime) > 2*time.Second {
 		log.Info("%d%%", prog)
@@ -147,7 +147,7 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 			return merry.Wrap(err)
 		}
 		if len(newMessages) == 0 && historyLimit > 0 {
-			// historyLimit applies a negative offset and (if a lot of messages were removed from the begining of the chat)
+			// historyLimit applies a negative offset and (if a lot of messages were removed from the beginning of the chat)
 			// returned message chunk may be empty. That means, there are less than `historyLimit-chunkSize` remaining messages,
 			// so we can just disable limit and retry
 			log.Debug("got no messages for %d offset; looks like there are less than %d messages, starting from the first one",
@@ -155,7 +155,7 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 			historyLimit = 0
 		} else {
 			// using limit only once: when it is positive, reference messages chunk will be loaded
-			// (with approximatelly chunk_first_msg_ID = last_msg_ID_in_this_chat - historyLimit)
+			// (with approximately chunk_first_msg_ID = last_msg_ID_in_this_chat - historyLimit)
 			// and subsequent loading will go on as usual (from older messages to newer ones)
 			historyLimit = 0
 
@@ -210,7 +210,7 @@ func loadAndSaveMessages(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, 
 }
 
 func loadAndSaveStories(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, tryLoadArchived bool) error {
-	chunkSize := int32(50) //TODO: 100 is available?
+	chunkSize := int32(50) // TODO: 100 is available?
 	lastSavedID, err := saver.GetLastStoryID(chat)
 	if err != nil {
 		return merry.Wrap(err)
@@ -299,6 +299,7 @@ func loadAndSaveStories(tg *tgclient.TGClient, chat *Chat, saver HistorySaver, t
 
 	return nil
 }
+
 func loadStoriesAndSaveRelated(tg *tgclient.TGClient, saver HistorySaver, chat *Chat, limit, offsetID int32, useArchived bool) ([]mtproto.TL, error) {
 	var stories, users, chats []mtproto.TL
 	var err error
@@ -360,8 +361,8 @@ func dump() error {
 	executableDir := filepath.Dir(executablePath)
 	commonLogHandler := LogHandler{
 		ConsoleMaxLevel: mtproto.INFO,
-		DebugFileLoger:  stdlog.New(mustOpen(filepath.Join(executableDir, "debug.log")), "", stdlog.LstdFlags),
-		ErrorFileLoger:  stdlog.New(mustOpen(filepath.Join(executableDir, "error.log")), "", stdlog.LstdFlags),
+		DebugFileLogger: stdlog.New(mustOpen(filepath.Join(executableDir, "debug.log")), "", stdlog.LstdFlags),
+		ErrorFileLogger: stdlog.New(mustOpen(filepath.Join(executableDir, "error.log")), "", stdlog.LstdFlags),
 		ConsoleLogger:   stdlog.New(color.Error, "", stdlog.LstdFlags),
 	}
 	tgLogHandler := commonLogHandler
@@ -374,7 +375,7 @@ func dump() error {
 	log = mtproto.Logger{Hnd: commonLogHandler}
 
 	// separating from older log
-	for _, logger := range []*stdlog.Logger{commonLogHandler.DebugFileLoger, commonLogHandler.ErrorFileLoger} {
+	for _, logger := range []*stdlog.Logger{commonLogHandler.DebugFileLogger, commonLogHandler.ErrorFileLogger} {
 		logger.Print("")
 		logger.Print("")
 		logger.Print(" === HISTORY DUMP START ===")

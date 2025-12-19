@@ -97,7 +97,7 @@ func TestJSONRecordsReader(t *testing.T) {
 	})
 
 	t.Run("appending", func(t *testing.T) {
-		t.Run("regualr", func(t *testing.T) {
+		t.Run("regular", func(t *testing.T) {
 			fpath := fillFile(t, "", "")
 			reader := NewJSONRecordsReader[Item](fpath)
 			updateOK(t, reader)

@@ -10,7 +10,7 @@ It gets only new (after already fetched) messages and resumes file downloads (if
 
 It works as a Telegram client. So yes, you will have to enter you phone, confirmation code and password (if any).
 
-It **will not fetch channel comments**. If you need them, you should join channel's dicussion group.
+It **will not fetch channel comments**. If you need them, you should join channel's discussion group.
 
 ## Installing
 
