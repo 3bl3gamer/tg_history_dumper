@@ -768,7 +768,7 @@ func (r *JSONRecordsReader[T]) UpdateOffsets() error {
 	// for big files (~85MB history/users) fastjson v.GetInt64("ID") is much faster than json.Unmarshal(struct{ ID int64 }):
 	//                                   read w/o parse   fastjson   encoding/json
 	// cold read (file not in cache)   |         200ms  |   200ms  |       700ms
-	// file is already in memory cahce |          20ms  |    90ms  |       500ms
+	// file is already in memory cache |          20ms  |    90ms  |       500ms
 
 	scanner := bufio.NewScanner(f)
 	scanner.Split(ScanFullLines)

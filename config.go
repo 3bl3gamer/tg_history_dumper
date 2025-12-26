@@ -39,9 +39,9 @@ type Config struct {
 	DoSessionsDump      string
 }
 
-type SuffuxedSize int64
+type SuffixedSize int64
 
-func (s *SuffuxedSize) UnmarshalJSON(buf []byte) error {
+func (s *SuffixedSize) UnmarshalJSON(buf []byte) error {
 	var str string
 	if err := json.Unmarshal(buf, &str); err != nil {
 		return merry.Wrap(err)
@@ -59,11 +59,11 @@ func (s *SuffuxedSize) UnmarshalJSON(buf []byte) error {
 	if err != nil {
 		return merry.Wrap(err)
 	}
-	*s = SuffuxedSize(n * k)
+	*s = SuffixedSize(n * k)
 	return nil
 }
 
-func (s *SuffuxedSize) MarshalJSON() ([]byte, error) {
+func (s *SuffixedSize) MarshalJSON() ([]byte, error) {
 	n := int64(*s)
 	suffix := ""
 	if n > 1024*1024 {
@@ -162,7 +162,7 @@ type ConfigChatFilterAttrs struct {
 	Title        *string       `json:"title,omitempty"`
 	Username     *string       `json:"username,omitempty"`
 	Type         *ChatType     `json:"type,omitempty"`
-	MediaMaxSize *SuffuxedSize `json:"media_max_size,omitempty"`
+	MediaMaxSize *SuffixedSize `json:"media_max_size,omitempty"`
 }
 
 func (f ConfigChatFilterAttrs) Match(chat *Chat, file *TGFileInfo) MatchResult {
@@ -234,7 +234,7 @@ func ParseConfig(fpath string) (*Config, error) {
 		return nil, merry.Wrap(err)
 	}
 
-	cfg := defaultConfig //copying default
+	cfg := defaultConfig // copying default
 	cfg.AppID = raw.AppID
 	cfg.AppHash = raw.AppHash
 	cfg.Socks5ProxyAddr = raw.Socks5ProxyAddr

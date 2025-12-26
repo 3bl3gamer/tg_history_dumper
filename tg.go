@@ -136,7 +136,7 @@ func tgGetMessageID(messageTL mtproto.TL) (int32, error) {
 		// Sometimes the first message (#1) in channel is TL_messageEmpty
 		// (instead of service message with action:TL_messageActionChannelCreate).
 		// Maybe it was somehow deleted? For example, in @rutheniumos
-		// the first visible mesage is https://t.me/rutheniumos/7 and #1 is "empty".
+		// the first visible message is https://t.me/rutheniumos/7 and #1 is "empty".
 		return message.ID, nil
 	default:
 		return 0, merry.Wrap(mtproto.WrongRespError(messageTL))
@@ -242,7 +242,7 @@ func tgExtractChannelData(channel mtproto.TL_channel, lastMessageID int32) *Chat
 func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 	chats := make([]*Chat, 0)
 	// For deduplication. Chat duplicated may be encountered not only on second and subsequent iterations,
-	// but also when user has pinned chats: these chats will be send in the begining of the first chunk (i.e. on "top")
+	// but also when user has pinned chats: these chats will be send in the beginning of the first chunk (i.e. on "top")
 	// and __also__ the same chats may be send in subsequent chunks as if these chats were not pinned.
 	chatIDs := make(map[int64]bool)
 
@@ -250,7 +250,7 @@ func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 	maxIterations := 2
 
 	// It is 'min' limit. Because TG can actually send __more__ chats in response.
-	// This happens for small limits and pinned chats: TG always adds some regualr chats after pinned ones.
+	// This happens for small limits and pinned chats: TG always adds some regular chats after pinned ones.
 	// Though it's not clear how many regular chats there will be. For example,
 	// when there are 3 pinned chats and limit is 1, there will be 7 chats in response: 3 pinned and 4 regular.
 	// If limit is 5, the response will contain 8 chats. If limit is 10 (and 3 still pinned), response will match request (10 chats).
@@ -311,7 +311,7 @@ func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 		}
 		if len(res.Dialogs) < int(minChatsPerSlice) {
 			s, _ := resTL.(mtproto.TL_messages_dialogsSlice)
-			log.Debug("last dialog slice size is %d, expexted %d. Looks like we've reached the bottom of dialogs list. "+
+			log.Debug("last dialog slice size is %d, expected %d. Looks like we've reached the bottom of dialogs list. "+
 				"But dialogs list is not complete (got only %d of total %d dialogs)",
 				len(res.Dialogs), int(minChatsPerSlice), len(chats), s.Count)
 
@@ -336,7 +336,7 @@ func tgLoadChats(tg *tgclient.TGClient) ([]*Chat, error) {
 		// Items in `res.Messages` seems always sorted by message date.
 		// But chats are not! Most of them are sorted by their last message date too, __except pinned ones__.
 		// Pinned chats are always returned first in the first chunk.
-		// So `res.Dialogs` and `res.Messages` sorting is dufferent and we can't just take the last `res.Messages` item for offset.
+		// So `res.Dialogs` and `res.Messages` sorting is different and we can't just take the last `res.Messages` item for offset.
 		offsetMessageFound := false
 		for i := len(slice) - 1; i >= 0; i-- {
 			chat := slice[i]
@@ -623,7 +623,7 @@ type TGFileInfo struct {
 }
 
 // getBestPhotoSize returns largest photo size of images.
-// Usually it is the last size-object. But SOMETIMES Sizes aray is reversed.
+// Usually it is the last size-object. But SOMETIMES Sizes array is reversed.
 func getBestPhotoSize(photo mtproto.TL_photo) (sizeType string, sizeBytes int32, err error) {
 	maxResolution := int32(0)
 	for _, sizeTL := range photo.Sizes {

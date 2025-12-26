@@ -185,7 +185,7 @@ func Test__ConfigChatFilter(t *testing.T) {
 	assertEqual(t, f.Match(&Chat{ID: 12, Type: ChatChannel}, nil), MatchUndefined)
 
 	// files
-	size512K := SuffuxedSize(512 * 1024)
+	size512K := SuffixedSize(512 * 1024)
 	f = ConfigChatFilterAttrs{ID: &id123, MediaMaxSize: &size512K}
 	assertEqual(t, f.Match(&Chat{ID: 123}, nil), MatchTrue)
 	assertEqual(t, f.Match(&Chat{ID: 123}, &TGFileInfo{Size: 512 * 1024}), MatchTrue)

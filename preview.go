@@ -324,11 +324,11 @@ func applyEntities(strText string, entities []interface{}) []interface{} {
 			entClose := ""
 			isBlock := false
 			switch ent["_"] {
-			case "TL_messageEntityTextUrl": //type name before v0.167.0
+			case "TL_messageEntityTextUrl": // type name before v0.167.0
 				fallthrough
 			case "TL_messageEntityTextURL":
 				var url string
-				if u, ok := ent["Url"]; ok { //field name before v0.167.0
+				if u, ok := ent["Url"]; ok { // field name before v0.167.0
 					url = u.(string)
 				} else {
 					url = ent["URL"].(string)
@@ -336,7 +336,7 @@ func applyEntities(strText string, entities []interface{}) []interface{} {
 				href := addDefaultScheme(url, "http")
 				entOpen = `<a href="` + href + `" target="_blank">`
 				entClose = `</a>`
-			case "TL_messageEntityUrl": //type name before v0.167.0
+			case "TL_messageEntityUrl": // type name before v0.167.0
 				fallthrough
 			case "TL_messageEntityURL":
 				entOffset := int64(ent["Offset"].(float64))
@@ -390,7 +390,7 @@ func applyEntities(strText string, entities []interface{}) []interface{} {
 	addTextLines := func(endI int) {
 		lines := strings.Split(string(utf16.Decode(text[lastEntityEnd:endI])), "\n")
 		if lastEntityWasBlock && lines[0] == "" {
-			lines = lines[1:] //removing empty newline after block entity (such as <pre>)
+			lines = lines[1:] // removing empty newline after block entity (such as <pre>)
 		}
 		for i, line := range lines {
 			if i > 0 {
@@ -630,7 +630,7 @@ func (r *ChatSyncReader[T]) UpdateOffsets() error {
 
 // ChatCachedReader is a wrapper around JSONRecordsReader with read items cache.
 //
-// It IS NOT thread-safe, though multiple chached readers may share same [ChatSyncReader].
+// It IS NOT thread-safe, though multiple cached readers may share same [ChatSyncReader].
 //
 // It is expected to be created once for each HTTP request, so multiple reads of same
 // UserID (for example) will be cached for single request. And so subsequent request
